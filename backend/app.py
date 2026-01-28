@@ -1,22 +1,36 @@
 import json
 import numpy as np
 import onnxruntime as ort
-from fastapi import FastAPI
-from pydantic import BaseModel
+import os
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, conlist
 
 app = FastAPI(title="ASL Alphabet Recognition API")
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-session = ort.InferenceSession("asl_mlp.onnx", providers=["CPUExecutionProvider"])
+MODEL_PATH = os.path.join(BASE_DIR, "asl_mlp.onnx")
+LABEL_PATH = os.path.join(BASE_DIR, "label_map.json")
 
-# Load label map
-with open("label_map.json") as f:
+session = ort.InferenceSession(
+    MODEL_PATH,
+    providers=["CPUExecutionProvider"]
+)
+
+INPUT_NAME = session.get_inputs()[0].name  # SAFE
+
+with open(LABEL_PATH) as f:
     label2idx = json.load(f)
 
 idx2label = {v: k for k, v in label2idx.items()}
 
+NUM_FEATURES = 63
+
+
 class InputData(BaseModel):
-    keypoints: list  # length = 63
+    keypoints: conlist(float, min_length=63, max_length=63)
+
 
 def softmax(x):
     e = np.exp(x - np.max(x))
@@ -28,12 +42,18 @@ def root():
 
 @app.post("/predict")
 def predict(data: InputData):
-    x = np.array(data.keypoints, dtype=np.float32).reshape(1, 63)
-    logits = session.run(None, {"keypoints": x})[0]
-    probs = softmax(logits[0])
-    pred = int(np.argmax(probs))
+    try:
+        x = np.array(data.keypoints, dtype=np.float32).reshape(1, NUM_FEATURES)
 
-    return {
-        "prediction": idx2label[pred],
-        "confidence": float(probs[pred])
-    }
+        logits = session.run(None, {INPUT_NAME: x})[0]
+        probs = softmax(logits[0])
+
+        pred_idx = int(np.argmax(probs))
+
+        return {
+            "prediction": idx2label[pred_idx],
+            "confidence": float(probs[pred_idx])
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
