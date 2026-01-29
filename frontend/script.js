@@ -11,7 +11,6 @@ const confidenceEl = document.getElementById("confidence");
 // =====================
 // BACKEND URL
 // =====================
-// ⚠️ CHANGE THIS TO YOUR RENDER URL
 const API_URL = "https://asl-prediction.onrender.com/predict";
 
 // =====================
@@ -50,9 +49,7 @@ camera.start();
 function extractKeypoints(landmarks) {
   const kp = [];
   for (let i = 0; i < 21; i++) {
-    kp.push(landmarks[i].x);
-    kp.push(landmarks[i].y);
-    kp.push(landmarks[i].z);
+    kp.push(landmarks[i].x, landmarks[i].y, landmarks[i].z);
   }
   return kp;
 }
@@ -64,28 +61,15 @@ async function sendToBackend(keypoints) {
   try {
     const res = await fetch(API_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ keypoints }),
     });
 
-    if (!res.ok) {
-      throw new Error(`Backend error: ${res.status}`);
-    }
-
     const data = await res.json();
-
-    if (!data.prediction) {
-      throw new Error("Invalid response");
-    }
-
     letterEl.innerText = data.prediction;
     confidenceEl.innerText =
       "Confidence: " + (data.confidence * 100).toFixed(1) + "%";
-
   } catch (err) {
-    console.error("Prediction error:", err);
     letterEl.innerText = "-";
     confidenceEl.innerText = "Waiting for stable hand";
   }
@@ -95,60 +79,75 @@ async function sendToBackend(keypoints) {
 // THROTTLING
 // =====================
 let lastSent = 0;
-const SEND_INTERVAL = 500; // ms
+const SEND_INTERVAL = 500;
 
 // =====================
 // MAIN HANDLER
 // =====================
 function onResults(results) {
-  canvasCtx.save();
   canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-  canvasCtx.drawImage(
-    results.image,
-    0,
-    0,
-    canvasElement.width,
-    canvasElement.height
-  );
+  canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-  // STRICT VALIDATION
   if (
     results.multiHandLandmarks &&
-    results.multiHandLandmarks.length === 1 &&
-    results.multiHandLandmarks[0].length === 21
+    results.multiHandLandmarks.length === 1
   ) {
     const landmarks = results.multiHandLandmarks[0];
 
-    // Draw skeleton
-    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
-      color: "#22c55e",
-      lineWidth: 2,
-    });
-    drawLandmarks(canvasCtx, landmarks, {
-      color: "#ef4444",
-      lineWidth: 1,
-    });
+    drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: "#22c55e" });
+    drawLandmarks(canvasCtx, landmarks, { color: "#ef4444" });
 
     const keypoints = extractKeypoints(landmarks);
-
-    // FINAL SAFETY CHECK
-    if (keypoints.length !== 63) {
-      letterEl.innerText = "-";
-      confidenceEl.innerText = "Invalid hand data";
-      canvasCtx.restore();
-      return;
-    }
-
     const now = Date.now();
-    if (now - lastSent > SEND_INTERVAL) {
+
+    if (keypoints.length === 63 && now - lastSent > SEND_INTERVAL) {
       sendToBackend(keypoints);
       lastSent = now;
     }
-
   } else {
     letterEl.innerText = "-";
     confidenceEl.innerText = "No hand detected";
   }
-
-  canvasCtx.restore();
 }
+
+// =====================
+// GEMINI CHATBOT (INLINE)
+// =====================
+const GEMINI_API_KEY = "AIzaSyBj1dXb_jlXzkJC85b3PbLm1u6ltBtGmLI";
+
+const chatbot = document.createElement("div");
+chatbot.innerHTML = `
+  <div style="margin-top:20px;width:320px;background:#0f172a;padding:12px;border-radius:12px">
+    <div id="chatOut" style="height:140px;overflow:auto;color:#e5e7eb;font-size:14px"></div>
+    <input id="chatIn" placeholder="Ask about ASL…" 
+      style="width:100%;margin-top:6px;padding:6px;border-radius:6px;border:none"/>
+  </div>`;
+document.body.appendChild(chatbot);
+
+const chatIn = document.getElementById("chatIn");
+const chatOut = document.getElementById("chatOut");
+
+chatIn.addEventListener("keydown", async (e) => {
+  if (e.key === "Enter" && chatIn.value.trim()) {
+    const msg = chatIn.value;
+    chatIn.value = "";
+    chatOut.innerHTML += `<div><b>You:</b> ${msg}</div>`;
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: "ASL assistant:\n" + msg }] }],
+        }),
+      }
+    );
+
+    const data = await res.json();
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response";
+    chatOut.innerHTML += `<div style="color:#22c55e"><b>Bot:</b> ${reply}</div>`;
+    chatOut.scrollTop = chatOut.scrollHeight;
+  }
+});
+
