@@ -5,8 +5,16 @@ import os
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, conlist
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="ASL Alphabet Recognition API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"],  
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 

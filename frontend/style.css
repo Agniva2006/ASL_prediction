@@ -1,0 +1,34 @@
+body {
+  background: #0f172a;
+  color: #e5e7eb;
+  font-family: Arial, sans-serif;
+  text-align: center;
+}
+
+.container {
+  position: relative;
+  width: 640px;
+  margin: auto;
+}
+
+video, canvas {
+  width: 640px;
+  height: 480px;
+  border-radius: 12px;
+}
+
+canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.output {
+  margin-top: 20px;
+}
+
+#letter {
+  font-size: 72px;
+  font-weight: bold;
+  color: #38bdf8;
+}
