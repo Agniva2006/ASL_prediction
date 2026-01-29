@@ -6,7 +6,7 @@ const letterEl = document.getElementById("letter");
 const confidenceEl = document.getElementById("confidence");
 
 // 🔴 CHANGE THIS LATER WHEN BACKEND IS DEPLOYED
-const API_URL = "http://127.0.0.1:8000/predict";
+const API_URL = "https://asl-backend.onrender.com/predict";
 
 // MediaPipe Hands
 const hands = new Hands({
