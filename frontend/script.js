@@ -1,3 +1,6 @@
+// =====================
+// DOM ELEMENTS
+// =====================
 const videoElement = document.getElementById("video");
 const canvasElement = document.getElementById("canvas");
 const canvasCtx = canvasElement.getContext("2d");
@@ -5,11 +8,15 @@ const canvasCtx = canvasElement.getContext("2d");
 const letterEl = document.getElementById("letter");
 const confidenceEl = document.getElementById("confidence");
 
-// CHANGE THIS LATER WHEN BACKEND IS DEPLOYED
-const API_URL = "https://asl-backend.onrender.com/predict";
+// =====================
+// BACKEND URL
+// =====================
+// ⚠️ CHANGE THIS TO YOUR RENDER URL
+const API_URL = "https://asl-prediction.onrender.com/predict";
 
-
-// MediaPipe Hands
+// =====================
+// MEDIAPIPE HANDS
+// =====================
 const hands = new Hands({
   locateFile: (file) =>
     `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
@@ -24,7 +31,9 @@ hands.setOptions({
 
 hands.onResults(onResults);
 
-// Camera
+// =====================
+// CAMERA
+// =====================
 const camera = new Camera(videoElement, {
   onFrame: async () => {
     await hands.send({ image: videoElement });
@@ -35,7 +44,9 @@ const camera = new Camera(videoElement, {
 
 camera.start();
 
-// Extract 63 keypoints
+// =====================
+// KEYPOINT EXTRACTION (21 × 3 = 63)
+// =====================
 function extractKeypoints(landmarks) {
   const kp = [];
   for (let i = 0; i < 21; i++) {
@@ -46,37 +57,69 @@ function extractKeypoints(landmarks) {
   return kp;
 }
 
-// Call backend
+// =====================
+// BACKEND CALL
+// =====================
 async function sendToBackend(keypoints) {
   try {
     const res = await fetch(API_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({ keypoints }),
     });
 
+    if (!res.ok) {
+      throw new Error(`Backend error: ${res.status}`);
+    }
+
     const data = await res.json();
+
+    if (!data.prediction) {
+      throw new Error("Invalid response");
+    }
 
     letterEl.innerText = data.prediction;
     confidenceEl.innerText =
       "Confidence: " + (data.confidence * 100).toFixed(1) + "%";
 
   } catch (err) {
-    console.error("Backend error:", err);
+    console.error("Prediction error:", err);
+    letterEl.innerText = "-";
+    confidenceEl.innerText = "Waiting for stable hand";
   }
 }
 
-// Throttle requests
+// =====================
+// THROTTLING
+// =====================
 let lastSent = 0;
+const SEND_INTERVAL = 500; // ms
 
+// =====================
+// MAIN HANDLER
+// =====================
 function onResults(results) {
   canvasCtx.save();
   canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-  canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+  canvasCtx.drawImage(
+    results.image,
+    0,
+    0,
+    canvasElement.width,
+    canvasElement.height
+  );
 
-  if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+  // STRICT VALIDATION
+  if (
+    results.multiHandLandmarks &&
+    results.multiHandLandmarks.length === 1 &&
+    results.multiHandLandmarks[0].length === 21
+  ) {
     const landmarks = results.multiHandLandmarks[0];
 
+    // Draw skeleton
     drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, {
       color: "#22c55e",
       lineWidth: 2,
@@ -88,11 +131,20 @@ function onResults(results) {
 
     const keypoints = extractKeypoints(landmarks);
 
+    // FINAL SAFETY CHECK
+    if (keypoints.length !== 63) {
+      letterEl.innerText = "-";
+      confidenceEl.innerText = "Invalid hand data";
+      canvasCtx.restore();
+      return;
+    }
+
     const now = Date.now();
-    if (now - lastSent > 500) {
+    if (now - lastSent > SEND_INTERVAL) {
       sendToBackend(keypoints);
       lastSent = now;
     }
+
   } else {
     letterEl.innerText = "-";
     confidenceEl.innerText = "No hand detected";
