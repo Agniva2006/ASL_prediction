@@ -1,6 +1,3 @@
-## ASL_using neural network
-
-https://sign0.vercel.app/ -> https://asl-prediction.vercel.app
 # 🤟 Sign0 — AI-Powered Sign Language Recognition
 
 > Bridging communication gaps using real-time AI-driven sign language recognition.
