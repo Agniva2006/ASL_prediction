@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign0 — Special Needs & Accessibility Guide</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Shared Navbar Header -->
+  <header class="navbar">
+    <div class="logo">
+      <span class="icon">🤟</span>
+      <a href="index.html" class="brand" style="text-decoration:none;color:inherit">Sign<span class="highlight">0</span></a>
+      <span class="badge-tag">Accessibility Suite</span>
+    </div>
+
+    <nav class="nav-links">
+      <a href="index.html" class="nav-link">🎥 Recognizer</a>
+      <a href="dictionary.html" class="nav-link">📚 ASL Dictionary</a>
+      <a href="generator.html" class="nav-link">🪄 Sign Synthesizer</a>
+      <a href="accessibility.html" class="nav-link active">♿ Special Needs Guide</a>
+    </nav>
+  </header>
+
+  <!-- Main Container -->
+  <main class="page-container">
+    <div class="page-header">
+      <h1 class="page-title">♿ Assistive Technology & Special Needs Empowerment Guide</h1>
+      <p class="page-subtitle">Dedicated resources, assistive controls, and implementation guidelines for speech-impaired individuals, special education teachers, and children with learning differences.</p>
+    </div>
+
+    <!-- Accessibility Quick Toggles -->
+    <div class="card access-card">
+      <h2 class="card-title">⚙️ Accessibility Preference Controls</h2>
+      
+      <div class="access-toggles-grid">
+        <div class="access-option">
+          <div class="opt-info">
+            <span class="opt-title">High Contrast Dark Mode</span>
+            <span class="opt-desc">Enhances text visibility and joint node contrast for low-vision learners.</span>
+          </div>
+          <button id="contrastToggle" class="btn-sm btn-accent" onclick="toggleContrast()">Toggle High Contrast</button>
+        </div>
+
+        <div class="access-option">
+          <div class="opt-info">
+            <span class="opt-title">OpenDyslexic Friendly Font</span>
+            <span class="opt-desc">Switches UI typography to weighted bottom fonts to reduce character flipping.</span>
+          </div>
+          <button id="fontToggle" class="btn-sm btn-action" onclick="toggleDyslexicFont()">Toggle Dyslexia Font</button>
+        </div>
+
+        <div class="access-option">
+          <div class="opt-info">
+            <span class="opt-title">Large Touch Targets</span>
+            <span class="opt-desc">Enlarges button padding for children and motor-impaired users.</span>
+          </div>
+          <button id="targetToggle" class="btn-sm btn-action" onclick="toggleLargeTargets()">Toggle Large Buttons</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Educational & Assistive Guides -->
+    <div class="access-guides-grid">
+      <div class="card guide-card">
+        <h3 class="guide-title">🗣️ For Mute & Speech-Impaired Individuals</h3>
+        <ul class="guide-list">
+          <li><strong>Real-Time Voice Translation:</strong> Converts hand gestures to spoken speech using the Web Speech Synthesis Engine.</li>
+          <li><strong>Sentence Builder History:</strong> Accumulate recognized sign letters into complete sentences with one-click speech playback.</li>
+          <li><strong>Text-to-Sign Diffusion Player:</strong> Type custom messages to visualize synthesized 3D landmark animations.</li>
+        </ul>
+      </div>
+
+      <div class="card guide-card">
+        <h3 class="guide-title">🧒 For Special Children & Educators</h3>
+        <ul class="guide-list">
+          <li><strong>Visual Feedback Overlay:</strong> Real-time glowing joint nodes (wrist red, joints green, connections cyan) provide immediate motor confirmation.</li>
+          <li><strong>Interactive ASL Dictionary:</strong> Step-by-step finger position instructions with audio playback for every alphabet and phrase.</li>
+          <li><strong>Top-3 Probability Assist:</strong> Shows alternative sign candidates if a gesture is partially formed.</li>
+        </ul>
+      </div>
+
+      <div class="card guide-card">
+        <h3 class="guide-title">🧠 AI Architectural Overview</h3>
+        <ul class="guide-list">
+          <li><strong>Normalized 3D Landmarks:</strong> Wrist-centered translation & scale normalization eliminate camera distance sensitivity.</li>
+          <li><strong>Spatial-Temporal Transformer:</strong> Multi-Head Self-Attention model tracks 3D trajectory motion sequences over time.</li>
+          <li><strong>Denoising Diffusion Synthesizer:</strong> DDPM neural network generates frame-by-frame 3D hand skeleton sequences.</li>
+        </ul>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    function toggleContrast() {
+      document.body.classList.toggle("high-contrast");
+    }
+    function toggleDyslexicFont() {
+      document.body.classList.toggle("dyslexic-font");
+    }
+    function toggleLargeTargets() {
+      document.body.classList.toggle("large-targets");
+    }
+  </script>
+</body>
+</html>

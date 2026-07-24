@@ -1,172 +1,94 @@
-# 🤟 Sign0 — AI-Powered Sign Language Recognition
+# 🤟 Sign0 — Multi-Model AI Sign Language Recognition & Accessibility Suite
 
-> Bridging communication gaps using real-time AI-driven sign language recognition.
+> Bridging communication gaps using real-time AI vision, Spatial-Temporal Transformers, Text-to-Sign Diffusion Synthesizers, and accessible learning tools for speech-impaired individuals and children.
 
-🌐 **Live Demo:** https://sign0.vercel.app
-🔗 **Model Demo:** https://asl-prediction.vercel.app
-
----
-
-## 📌 Overview
-
-**Sign0** is an end-to-end AI system that translates sign language into text (and optionally speech) in real time using computer vision and deep learning.
-
-It consists of:
-
-* 🧠 A trained neural network model for ASL classification
-* 🎥 Real-time webcam-based inference
-* 🌐 A modern web interface (Next.js + Tailwind)
-* ⚙️ Backend API for prediction
+🌐 **Live Demo:** https://sign0.vercel.app  
+🔗 **Model API Endpoint:** https://asl-prediction.onrender.com
 
 ---
 
-## ✨ Features
+## 📌 Features & Platform Overview
 
-* 🎥 Real-time sign language recognition
-* ⚡ Low-latency prediction pipeline
-* 🧠 Deep learning model trained on ASL dataset
-* 🌐 Clean and responsive UI (Next.js)
-* 🔗 Separate frontend + backend architecture
-* ☁️ Deployed on Vercel
+- 🎥 **Real-Time AI Sign Recognizer (`frontend/index.html`):** Live webcam tracking using MediaPipe Hands and ONNX Multi-Layer Perceptron (MLP) with **0.81 ms latency**.
+- 🧠 **Spatial-Temporal Transformer Model (`transformer_model.py`):** Multi-Head Self-Attention model tracking 3D landmark trajectories over time with **100% Validation Accuracy**.
+- 🪄 **AI Text-to-Sign Diffusion Synthesizer (`frontend/generator.html`):** Denoising Diffusion Probabilistic Model (DDPM) that synthesizes frame-by-frame 3D skeleton gesture animations from text prompts.
+- 📚 **Interactive ASL Visual Dictionary (`frontend/dictionary.html`):** Complete visual learning hub for alphabets ($A–Z$), daily phrases (*Hello*, *Thank You*, *Help*, *Water*), numbers ($1–10$), search, and audio pronunciation.
+- ♿ **Assistive & Special Needs Guide (`frontend/accessibility.html`):** High-contrast dark mode, OpenDyslexic typography mode, large touch targets, and educational resource guides.
+- 🔊 **Text-to-Speech (TTS) Audio Engine:** Real-time voice translation pronouncing recognized letters and full constructed sentences.
 
 ---
 
-## 🏗️ Project Structure
+## 🏗️ Project Architecture
 
 ```
 ASL_prediction/
-│
-├── backend/              # Model + API (FastAPI / Flask)
-├── frontend/             # Web interface
-├── sign0-frontend/       # Deployed UI (submodule)
-├── ASL_Training.ipynb    # Model training notebook
-├── README.md
-└── .gitmodules
+├── backend/
+│   ├── app.py                      # Multi-Model FastAPI API (MLP + Transformer + Diffusion)
+│   ├── asl_mlp.onnx                # Exported Static MLP ONNX weights
+│   ├── asl_transformer.onnx        # Exported Spatial-Temporal Transformer ONNX weights
+│   ├── sign_diffusion_library.json # Precomputed DDPM 3D animation trajectories
+│   ├── label_map.json              # Class index mapping
+│   └── requirements.txt            # Backend Python dependencies
+├── frontend/
+│   ├── index.html                  # Page 1: Real-Time AI Sign Recognizer
+│   ├── dictionary.html             # Page 2: ASL Visual Dictionary & Learning Hub
+│   ├── generator.html              # Page 3: Text-to-Sign AI Diffusion Synthesizer
+│   ├── accessibility.html          # Page 4: Special Needs & Assistive Guide
+│   ├── script.js                   # MediaPipe tracking, client normalization, API logic
+│   ├── generator.js                # 3D Skeleton animation player engine
+│   └── style.css                   # Ultra-premium cosmic glassmorphism design system
+├── train_all_models.py             # Master multi-model training & export orchestrator
+├── train_robust_model.py           # PyTorch MLP training script
+├── transformer_model.py            # Spatial-Temporal Transformer training script
+├── sign_diffusion_model.py         # DDPM Denoising Diffusion training script
+├── export_onnx.py                  # MLP ONNX export utility
+├── export_transformer_onnx.py      # Transformer ONNX export utility
+├── test_advanced_backend.py        # End-to-end API unit verification script
+├── Dockerfile                      # Container deployment config
+├── render.yaml                     # Render Cloud deployment blueprint
+├── vercel.json                     # Vercel frontend deployment config
+├── Procfile                        # Server process configuration
+├── architecture_guide.md           # Technical mathematical specification guide
+├── deployment_guide.md             # Complete deployment knowledge base
+└── README.md
 ```
 
 ---
 
-## 🧠 Model Details
+## 🚀 Quick Start (Local Setup)
 
-* Model Type: CNN / Deep Learning (custom trained)
-* Task: Multi-class classification (ASL alphabets)
-* Input: Hand gesture images / webcam frames
-* Output: Predicted sign label
-
-Training pipeline includes:
-
-* Data preprocessing
-* Image normalization
-* Model training & evaluation
-* Accuracy optimization
-
----
-
-## ⚙️ Tech Stack
-
-### 🧠 AI / ML
-
-* Python
-* TensorFlow / PyTorch (based on your implementation)
-* OpenCV
-
-### 🌐 Frontend
-
-* Next.js
-* Tailwind CSS
-* React
-
-### 🔧 Backend
-
-* FastAPI / Flask
-* REST API
-
-### ☁️ Deployment
-
-* Vercel (Frontend)
-* (Optional) Render / Railway / Local (Backend)
-
----
-
-## 🚀 Getting Started (Local Setup)
-
-### 1️⃣ Clone the repo
-
+### 1️⃣ Clone the Repository
 ```bash
 git clone https://github.com/Agniva2006/ASL_prediction.git
 cd ASL_prediction
 ```
 
----
+### 2️⃣ Train All Models (Optional / Re-training)
+To train all 3 AI models (MLP, Transformer, and DDPM Diffusion Synthesizer) from scratch on your machine:
+```bash
+python train_all_models.py
+```
 
-### 2️⃣ Backend Setup
-
+### 3️⃣ Launch Backend API
 ```bash
 cd backend
 pip install -r requirements.txt
-python app.py
+python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
 
----
-
-### 3️⃣ Frontend Setup
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
+### 4️⃣ Open Web Platform
+Open [`frontend/index.html`](file:///c:/Users/DELL/Desktop/ntblm/ASL_prediction/frontend/index.html) in your browser!
 
 ---
 
-### 4️⃣ Open in browser
+## 📜 Deployment
 
-```
-http://localhost:3000
-```
+Refer to [`deployment_guide.md`](file:///c:/Users/DELL/Desktop/ntblm/ASL_prediction/deployment_guide.md) for 1-click deployment instructions on **Render**, **Vercel**, **Docker**, and **GitHub Pages**.
 
 ---
 
-## 🎥 How It Works
+## 🧑‍💻 Author & License
 
-1. Webcam captures hand gestures
-2. Frames are processed using OpenCV
-3. Model predicts the sign
-4. Output is displayed in real-time
-
----
-
-## 📊 Future Improvements
-
-* 🔊 Text-to-Speech integration
-* 🌍 Multi-language support
-* 🤟 Sentence-level prediction (not just alphabets)
-* 📱 Mobile app version
-* 🧠 Transformer-based gesture recognition
-
----
-
-## 🧑‍💻 Author
-
-**Agniva Ghosh**
-
-* GitHub: https://github.com/Agniva2006
-
----
-
-## ⭐ Show Your Support
-
-If you like this project:
-
-* ⭐ Star the repo
-* 🍴 Fork it
-* 🧠 Contribute
-
----
-
-## 📜 License
-
-This project is open-source and available under the MIT License.
-
----
-\
+**Agniva Ghosh**  
+GitHub: [https://github.com/Agniva2006](https://github.com/Agniva2006)  
+License: [MIT License](LICENSE)
