@@ -14,7 +14,7 @@ const playerStatus = document.getElementById("playerStatus");
 
 const LOCAL_HOSTS = ["127.0.0.1", "localhost"];
 const LOCAL_PORTS = [8000, 8005, 8001, 8080];
-const REMOTE_API_BASE = "https://asl-prediction.onrender.com";
+const REMOTE_API_BASE = "https://asl-prediction-v2.onrender.com";
 let activeApiBaseUrl = "http://127.0.0.1:8000";
 let apiReady = false;
 

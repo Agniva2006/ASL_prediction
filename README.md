@@ -3,7 +3,7 @@
 > Bridging communication gaps using real-time AI vision, Spatial-Temporal Transformers, Text-to-Sign Diffusion Synthesizers, and accessible learning tools for speech-impaired individuals and children.
 
 🌐 **Live Demo:** https://sign0.vercel.app  
-🔗 **Model API Endpoint:** https://asl-prediction.onrender.com
+🔗 **Model API Endpoint:** https://asl-prediction-v2.onrender.com
 
 ---
 
@@ -81,7 +81,7 @@ python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ### 4️⃣ Open Web Platform
 Open `frontend/index.html` in your browser!
 
-The frontend auto-detects a local backend on ports `8005`, `8001`, `8000`, or `8080`. If no local API is running, it falls back to the deployed Render backend at `https://asl-prediction.onrender.com`.
+The frontend auto-detects a local backend on ports `8005`, `8001`, `8000`, or `8080`. If no local API is running, it falls back to the deployed Render backend at `https://asl-prediction-v2.onrender.com`.
 
 ---
 

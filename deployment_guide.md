@@ -41,7 +41,7 @@ flowchart LR
    - **Start Command:** `uvicorn backend.app:app --host 0.0.0.0 --port $PORT`
    - **Environment Variables:**
      - `KMP_DUPLICATE_LIB_OK`: `TRUE`
-5. **Deploy:** Click **Create Web Service**. Your API will be live at `https://asl-prediction-backend.onrender.com`.
+5. **Deploy:** Click **Create Web Service**. Your API will be live at `https://asl-prediction-v2.onrender.com`.
 
 ---
 
@@ -83,11 +83,10 @@ flowchart LR
 
 ## 🔗 3. Connecting Frontend to Production Backend
 
-Once your backend is deployed (e.g. at `https://asl-prediction-backend.onrender.com`), update `REMOTE_API` in `frontend/script.js` and `frontend/generator.js`:
+Once your backend is deployed (e.g. at `https://asl-prediction-v2.onrender.com`), update `REMOTE_API_BASE` in `frontend/script.js` and `frontend/generator.js`:
 
 ```javascript
-const REMOTE_API = "https://asl-prediction-backend.onrender.com/predict";
-const API_SYNTHESIZE_URL = "https://asl-prediction-backend.onrender.com/synthesize_sign";
+const REMOTE_API_BASE = "https://asl-prediction-v2.onrender.com";
 ```
 
 The auto-discovery mechanism will seamlessly route client calls to the live production endpoint whenever local backend servers are offline!
