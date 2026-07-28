@@ -83,7 +83,7 @@ flowchart LR
 
 ## 🔗 3. Connecting Frontend to Production Backend
 
-Once your backend is deployed (e.g. at `https://asl-prediction-backend.onrender.com`), update `REMOTE_API` in [`frontend/script.js`](file:///c:/Users/DELL/Desktop/ntblm/ASL_prediction/frontend/script.js) and [`frontend/generator.js`](file:///c:/Users/DELL/Desktop/ntblm/ASL_prediction/frontend/generator.js):
+Once your backend is deployed (e.g. at `https://asl-prediction-backend.onrender.com`), update `REMOTE_API` in `frontend/script.js` and `frontend/generator.js`:
 
 ```javascript
 const REMOTE_API = "https://asl-prediction-backend.onrender.com/predict";

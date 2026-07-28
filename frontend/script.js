@@ -30,35 +30,55 @@ const ttsToggleBtn = document.getElementById("ttsToggle");
 // ==========================================
 // API CONFIGURATION & BACKEND AUTO-DETECTION
 // ==========================================
-const LOCAL_PORTS = [8005, 8001, 8000, 8080];
-const REMOTE_API = "https://asl-prediction.onrender.com/predict";
-let activeApiUrl = `http://localhost:8005/predict`;
+const LOCAL_HOSTS = ["127.0.0.1", "localhost"];
+const LOCAL_PORTS = [8000, 8005, 8001, 8080];
+const REMOTE_API_BASE = "https://asl-prediction.onrender.com";
+let activeApiBaseUrl = "http://127.0.0.1:8000";
+let activeApiUrl = `${activeApiBaseUrl}/predict`;
 
 let ttsEnabled = true;
+let selectedModelMode = "mlp"; // 'mlp' or 'transformer'
 let currentPrediction = "-";
 let currentConfidence = 0;
+let stablePrediction = "-";
+let stableConfidence = 0;
 let lastSpokenLetter = "";
 let lastSentTime = 0;
-const SEND_INTERVAL_MS = 300;
+let lastBackendCheckTime = 0;
+const SEND_INTERVAL_MS = 250;
+const BACKEND_RECHECK_MS = 5000;
+const PREDICTION_HISTORY_LIMIT = 8;
+const MIN_STABLE_CONFIDENCE = 65;
+const MIN_STABLE_VOTES = 4;
+const predictionHistory = [];
+const sequenceBuffer = [];
 
-// Auto-detect working local backend port
+// Auto-detect working local backend (tests 127.0.0.1 and localhost across ports)
 async function checkBackendConnection() {
-  for (const port of LOCAL_PORTS) {
-    try {
-      const res = await fetch(`http://localhost:${port}/`, { method: "GET" });
-      if (res.ok) {
-        activeApiUrl = `http://localhost:${port}/predict`;
-        backendPillEl.innerText = `Local API (Port ${port})`;
-        backendPillEl.className = "val text-blue";
-        return;
+  for (const host of LOCAL_HOSTS) {
+    for (const port of LOCAL_PORTS) {
+      try {
+        const url = `http://${host}:${port}`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 1000);
+        const res = await fetch(`${url}/`, { method: "GET", signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (res.ok) {
+          activeApiBaseUrl = url;
+          activeApiUrl = `${activeApiBaseUrl}/${selectedModelMode === "transformer" ? "predict_sequence" : "predict"}`;
+          backendPillEl.innerText = `Local API (${host}:${port})`;
+          backendPillEl.className = "val text-blue";
+          return;
+        }
+      } catch (err) {
+        // Continue checking
       }
-    } catch (err) {
-      // Continue checking next port
     }
   }
-  
+
   // Fallback to production remote API if no local port is active
-  activeApiUrl = REMOTE_API;
+  activeApiBaseUrl = REMOTE_API_BASE;
+  activeApiUrl = `${activeApiBaseUrl}/${selectedModelMode === "transformer" ? "predict_sequence" : "predict"}`;
   backendPillEl.innerText = "Production Render API";
   backendPillEl.className = "val text-blue";
 }
@@ -101,42 +121,60 @@ function normalizeKeypoints(landmarks) {
 // ==========================================
 // MEDIAPIPE HANDS INITIALIZATION
 // ==========================================
-const hands = new Hands({
-  locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
-});
+let hands = null;
 
-hands.setOptions({
-  maxNumHands: 1,
-  modelComplexity: 1,
-  minDetectionConfidence: 0.6,
-  minTrackingConfidence: 0.6,
-});
+if (typeof Hands !== "undefined") {
+  hands = new Hands({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+  });
 
-hands.onResults(onResults);
+  hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6,
+  });
+
+  hands.onResults(onResults);
+}
 
 // ==========================================
 // RESILIENT CAMERA INITIALIZATION
 // ==========================================
 async function startCamera() {
+  if (!hands) {
+    setStatus("red", "MediaPipe failed to load");
+    if (videoOverlay) {
+      videoOverlay.classList.remove("hidden");
+      const messageEl = videoOverlay.querySelector(".overlay-msg");
+      if (messageEl) {
+        messageEl.innerText = "MediaPipe scripts could not load. Check your internet connection.";
+      }
+    }
+    return;
+  }
+
   setStatus("yellow", "Requesting Camera Access...");
 
   // Strategy 1: MediaPipe Camera Utility with ideal resolution constraints
-  try {
-    const camera = new Camera(videoElement, {
-      onFrame: async () => {
-        if (videoElement.readyState >= 2) {
-          await hands.send({ image: videoElement });
-        }
-      },
-      width: 640,
-      height: 480,
-    });
-    await camera.start();
-    if (videoOverlay) videoOverlay.classList.add("hidden");
-    setStatus("green", "Camera Active & Tracking");
-    return;
-  } catch (err1) {
-    console.warn("MediaPipe Camera util failed, trying native getUserMedia fallback:", err1);
+  if (typeof Camera !== "undefined") {
+    try {
+      const camera = new Camera(videoElement, {
+        onFrame: async () => {
+          if (videoElement.readyState >= 2) {
+            await hands.send({ image: videoElement });
+          }
+        },
+        width: 640,
+        height: 480,
+      });
+      await camera.start();
+      if (videoOverlay) videoOverlay.classList.add("hidden");
+      setStatus("green", "Camera Active & Tracking");
+      return;
+    } catch (err1) {
+      console.warn("MediaPipe Camera util failed, trying native getUserMedia fallback:", err1);
+    }
   }
 
   // Strategy 2: Native browser getUserMedia fallback with flexible video constraints
@@ -173,6 +211,13 @@ async function startCamera() {
   } catch (err2) {
     console.error("Native camera fallback error:", err2);
     setStatus("red", "Camera Error: Webcam not found or permission denied");
+    if (videoOverlay) {
+      videoOverlay.classList.remove("hidden");
+      const messageEl = videoOverlay.querySelector(".overlay-msg");
+      if (messageEl) {
+        messageEl.innerText = "Camera permission denied or webcam unavailable.";
+      }
+    }
   }
 }
 
@@ -243,11 +288,24 @@ function onResults(results) {
 // ==========================================
 async function sendToBackend(keypoints) {
   const startTime = performance.now();
+  
+  sequenceBuffer.push(keypoints);
+  if (sequenceBuffer.length > 16) {
+    sequenceBuffer.shift();
+  }
+
+  const isSeqMode = selectedModelMode === "transformer";
+  const endpointUrl = `${activeApiBaseUrl}/${isSeqMode ? "predict_sequence" : "predict"}`;
+  
+  const payload = isSeqMode
+    ? { sequence: sequenceBuffer.length >= 16 ? sequenceBuffer : Array(16).fill(keypoints) }
+    : { keypoints };
+
   try {
-    const res = await fetch(activeApiUrl, {
+    const res = await fetch(endpointUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ keypoints }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -256,10 +314,15 @@ async function sendToBackend(keypoints) {
     const roundtripLatency = Math.round(performance.now() - startTime);
 
     updatePredictionDisplay(data, roundtripLatency);
-    setStatus("green", "Real-Time Tracking Active");
+    setStatus("green", `Tracking Active (${data.model || "AI Model"})`);
   } catch (err) {
     setStatus("yellow", "API Retrying...");
     latencyPillEl.innerText = "-";
+    const now = Date.now();
+    if (now - lastBackendCheckTime > BACKEND_RECHECK_MS) {
+      lastBackendCheckTime = now;
+      checkBackendConnection();
+    }
   }
 }
 
@@ -267,38 +330,104 @@ async function sendToBackend(keypoints) {
 // UI DISPLAY UPDATER
 // ==========================================
 function updatePredictionDisplay(data, latencyMs) {
-  currentPrediction = data.prediction;
-  currentConfidence = Math.round(data.confidence * 100);
+  const smoothed = smoothPrediction(data);
+  currentPrediction = smoothed.label;
+  currentConfidence = smoothed.confidence;
+  stablePrediction = smoothed.isStable ? smoothed.label : "-";
+  stableConfidence = smoothed.isStable ? smoothed.confidence : 0;
 
-  predictedLetterEl.innerText = currentPrediction;
+  predictedLetterEl.innerText = smoothed.isStable ? stablePrediction : currentPrediction;
   confidencePercentEl.innerText = `${currentConfidence}%`;
   confidenceBarEl.style.width = `${currentConfidence}%`;
-  handStateLabelEl.innerText = "Hand Tracked & Classifying";
+  handStateLabelEl.innerText = smoothed.isStable
+    ? "Stable Letter Detected"
+    : "Tracking... hold sign steady";
   latencyPillEl.innerText = `${latencyMs} ms`;
 
   // Render Top-3 candidates
-  if (data.top_3 && data.top_3.length > 0) {
-    top3ListEl.innerHTML = data.top_3
+  if (smoothed.top3 && smoothed.top3.length > 0) {
+    top3ListEl.innerHTML = smoothed.top3
       .map(
         (c) => `
       <div class="top3-item">
         <span class="lbl">${c.label}</span>
-        <span class="prob">${(c.probability * 100).toFixed(1)}%</span>
+        <span class="prob">${c.probability.toFixed(1)}%</span>
       </div>`
       )
       .join("");
   }
 
   // Audio Speech Synthesis for changes with high confidence (>80%)
-  if (ttsEnabled && currentConfidence >= 80 && currentPrediction !== lastSpokenLetter) {
-    speakText(currentPrediction);
-    lastSpokenLetter = currentPrediction;
+  if (ttsEnabled && smoothed.isStable && stableConfidence >= 80 && stablePrediction !== lastSpokenLetter) {
+    speakText(stablePrediction);
+    lastSpokenLetter = stablePrediction;
   }
+}
+
+function smoothPrediction(data) {
+  const candidates = Array.isArray(data.top_3) && data.top_3.length > 0
+    ? data.top_3
+    : [{ label: data.prediction, probability: data.confidence }];
+
+  predictionHistory.push(candidates.map((item) => ({
+    label: item.label,
+    probability: Number(item.probability) || 0
+  })));
+
+  if (predictionHistory.length > PREDICTION_HISTORY_LIMIT) {
+    predictionHistory.shift();
+  }
+
+  const scoreByLabel = new Map();
+  const voteByLabel = new Map();
+
+  for (const frameCandidates of predictionHistory) {
+    const best = frameCandidates[0];
+    if (best) {
+      voteByLabel.set(best.label, (voteByLabel.get(best.label) || 0) + 1);
+    }
+
+    for (const candidate of frameCandidates) {
+      scoreByLabel.set(
+        candidate.label,
+        (scoreByLabel.get(candidate.label) || 0) + candidate.probability
+      );
+    }
+  }
+
+  const ranked = Array.from(scoreByLabel.entries())
+    .map(([label, score]) => ({
+      label,
+      probability: (score / predictionHistory.length) * 100,
+      votes: voteByLabel.get(label) || 0
+    }))
+    .sort((a, b) => b.probability - a.probability)
+    .slice(0, 3);
+
+  const best = ranked[0] || {
+    label: data.prediction || "-",
+    probability: (Number(data.confidence) || 0) * 100,
+    votes: 0
+  };
+
+  const isStable =
+    best.probability >= MIN_STABLE_CONFIDENCE &&
+    best.votes >= MIN_STABLE_VOTES;
+
+  return {
+    label: best.label,
+    confidence: Math.round(best.probability),
+    top3: ranked,
+    isStable
+  };
 }
 
 function resetPredictionDisplay(reason) {
   currentPrediction = "-";
   currentConfidence = 0;
+  stablePrediction = "-";
+  stableConfidence = 0;
+  predictionHistory.length = 0;
   predictedLetterEl.innerText = "-";
   confidencePercentEl.innerText = "0%";
   confidenceBarEl.style.width = "0%";
@@ -323,8 +452,9 @@ function appendToSentence(text) {
 }
 
 addLetterBtn.addEventListener("click", () => {
-  if (currentPrediction !== "-" && currentConfidence > 50) {
-    appendToSentence(currentPrediction);
+  const target = (stablePrediction !== "-") ? stablePrediction : (currentPrediction !== "-" ? currentPrediction : "");
+  if (target) {
+    appendToSentence(target);
   }
 });
 
@@ -443,27 +573,45 @@ function renderDictionary() {
       </div>
       <p class="dict-card-desc">${item.desc}</p>
       <div class="dict-card-footer">
-        <button class="dict-btn-speak" onclick="speakText('${item.title}: ${item.desc}')">
-          🔊 Hear Pronunciation
+        <button class="dict-btn-speak" type="button" data-speak="${escapeHtml(`${item.title}: ${item.desc}`)}">
+          Hear Pronunciation
         </button>
       </div>
     </div>`
     )
     .join("");
+
+  dictCardsGrid.querySelectorAll("[data-speak]").forEach((btn) => {
+    btn.addEventListener("click", () => speakText(btn.dataset.speak));
+  });
 }
 
-dictToggleBtn.addEventListener("click", () => {
-  dictModal.classList.remove("hidden");
-  renderDictionary();
-});
+function escapeHtml(text) {
+  return String(text)
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
 
-closeDictBtn.addEventListener("click", () => {
-  dictModal.classList.add("hidden");
-});
+if (dictToggleBtn && dictModal) {
+  dictToggleBtn.addEventListener("click", () => {
+    dictModal.classList.remove("hidden");
+    renderDictionary();
+  });
+}
 
-dictModal.addEventListener("click", (e) => {
-  if (e.target === dictModal) dictModal.classList.add("hidden");
-});
+if (closeDictBtn && dictModal) {
+  closeDictBtn.addEventListener("click", () => {
+    dictModal.classList.add("hidden");
+  });
+}
+
+if (dictModal) {
+  dictModal.addEventListener("click", (e) => {
+    if (e.target === dictModal) dictModal.classList.add("hidden");
+  });
+}
 
 filterBtns.forEach((btn) => {
   btn.addEventListener("click", () => {
@@ -474,14 +622,25 @@ filterBtns.forEach((btn) => {
   });
 });
 
-dictSearchInput.addEventListener("input", renderDictionary);
+if (dictSearchInput) {
+  dictSearchInput.addEventListener("input", renderDictionary);
+}
 
 
 ttsToggleBtn.addEventListener("click", () => {
   ttsEnabled = !ttsEnabled;
   ttsToggleBtn.classList.toggle("active", ttsEnabled);
-  ttsToggleBtn.innerText = ttsEnabled ? "🔊 Speech ON" : "🔇 Speech OFF";
+  ttsToggleBtn.innerText = ttsEnabled ? "Speech ON" : "Speech OFF";
 });
+
+const modelModeSelect = document.getElementById("modelModeSelect");
+if (modelModeSelect) {
+  modelModeSelect.addEventListener("change", (e) => {
+    selectedModelMode = e.target.value;
+    activeApiUrl = `${activeApiBaseUrl}/${selectedModelMode === "transformer" ? "predict_sequence" : "predict"}`;
+    setStatus("yellow", `Switched to ${selectedModelMode === "transformer" ? "Spatial-Temporal Transformer" : "Static MLP"} Model`);
+  });
+}
 
 function speakText(text) {
   if ('speechSynthesis' in window) {

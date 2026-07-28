@@ -1,51 +1,14 @@
 import os
 import torch
-import torch.nn as nn
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-class ASLClassifierV2(nn.Module):
-    def __init__(self, input_dim=63, num_classes=26):
-        super().__init__()
-        self.in_proj = nn.Sequential(
-            nn.Linear(input_dim, 256),
-            nn.LayerNorm(256),
-            nn.GELU(),
-            nn.Dropout(0.2)
-        )
-        
-        self.block1 = nn.Sequential(
-            nn.Linear(256, 256),
-            nn.LayerNorm(256),
-            nn.GELU(),
-            nn.Dropout(0.2),
-            nn.Linear(256, 256),
-            nn.LayerNorm(256),
-            nn.GELU()
-        )
-        
-        self.block2 = nn.Sequential(
-            nn.Linear(256, 128),
-            nn.LayerNorm(128),
-            nn.GELU(),
-            nn.Dropout(0.2),
-            nn.Linear(128, 128),
-            nn.LayerNorm(128),
-            nn.GELU()
-        )
-        
-        self.head = nn.Linear(128, num_classes)
-        
-    def forward(self, x):
-        h = self.in_proj(x)
-        h = h + self.block1(h)
-        h2 = self.block2(h)
-        return self.head(h2)
+from asl_models import ASLClassifierV2
 
 def export():
     device = torch.device("cpu")
     model = ASLClassifierV2()
-    state_dict = torch.load("best_asl_model.pth", map_location=device)
+    state_dict = torch.load("best_asl_model.pth", map_location=device, weights_only=True)
     model.load_state_dict(state_dict)
     model.eval()
 
@@ -81,3 +44,4 @@ def export():
 
 if __name__ == "__main__":
     export()
+

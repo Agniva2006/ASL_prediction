@@ -3,9 +3,10 @@ import time
 import numpy as np
 import onnxruntime as ort
 import os
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, conlist
+from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
@@ -66,10 +67,10 @@ else:
 NUM_FEATURES = 63
 
 class StaticInputData(BaseModel):
-    keypoints: conlist(float, min_length=63, max_length=63)
+    keypoints: Annotated[list[float], Field(min_length=63, max_length=63)]
 
 class SequenceInputData(BaseModel):
-    sequence: conlist(conlist(float, min_length=63, max_length=63), min_length=1, max_length=60)
+    sequence: Annotated[list[Annotated[list[float], Field(min_length=63, max_length=63)]], Field(min_length=1, max_length=60)]
 
 class SynthesizePromptData(BaseModel):
     prompt: str
@@ -168,24 +169,88 @@ def predict_sequence(data: SequenceInputData):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Transformer Inference error: {str(e)}")
 
+def generate_word_trajectory(word: str, num_frames=20):
+    """
+    Generates dynamic wrist-centered 3D landmark trajectory for arbitrary words/letters.
+    """
+    base_palm = np.array([
+        [0.0, 0.0, 0.0],          # 0: Wrist
+        [0.08, -0.05, 0.0],       # 1: Thumb CMC
+        [0.14, -0.12, 0.0],       # 2: Thumb MCP
+        [0.18, -0.18, 0.0],       # 3: Thumb IP
+        [0.22, -0.22, 0.0],       # 4: Thumb Tip
+        [0.05, -0.25, 0.0],       # 5: Index MCP
+        [0.07, -0.35, 0.0],       # 6: Index PIP
+        [0.08, -0.42, 0.0],       # 7: Index DIP
+        [0.09, -0.48, 0.0],       # 8: Index Tip
+        [0.0, -0.26, 0.0],        # 9: Middle MCP
+        [0.0, -0.37, 0.0],        # 10: Middle PIP
+        [0.0, -0.45, 0.0],        # 11: Middle DIP
+        [0.0, -0.52, 0.0],        # 12: Middle Tip
+        [-0.05, -0.24, 0.0],      # 13: Ring MCP
+        [-0.07, -0.34, 0.0],      # 14: Ring PIP
+        [-0.08, -0.41, 0.0],      # 15: Ring DIP
+        [-0.09, -0.47, 0.0],      # 16: Ring Tip
+        [-0.10, -0.21, 0.0],      # 17: Pinky MCP
+        [-0.13, -0.29, 0.0],      # 18: Pinky PIP
+        [-0.15, -0.35, 0.0],      # 19: Pinky DIP
+        [-0.17, -0.40, 0.0]       # 20: Pinky Tip
+    ], dtype=np.float32)
+
+    frames = []
+    hash_val = sum(ord(c) for c in word)
+    wave_freq = 1.0 + (hash_val % 3) * 0.5
+
+    for t in range(num_frames):
+        progress = t / float(num_frames)
+        frame = base_palm.copy()
+        wave = np.sin(progress * np.pi * 2 * wave_freq) * 0.06
+        lift = np.sin(progress * np.pi) * 0.08
+        
+        frame[:, 0] += wave
+        frame[5:, 1] -= lift
+        frames.append(frame.tolist())
+
+    return frames
+
 @app.post("/synthesize_sign")
 def synthesize_sign(data: SynthesizePromptData):
     prompt_clean = data.prompt.lower().strip()
+    if not prompt_clean:
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
     
-    # Match in precomputed diffusion library or fallback to nearest prompt
+    # 1. Exact match in precomputed diffusion library
     if prompt_clean in diffusion_library:
         frames_3d = diffusion_library[prompt_clean]
-    elif len(diffusion_library) > 0:
-        # Match partial word
-        matched = next((k for k in diffusion_library if k in prompt_clean or prompt_clean in k), list(diffusion_library.keys())[0])
-        frames_3d = diffusion_library[matched]
+        matched_words = [prompt_clean]
     else:
-        # Default synthesized 3D trajectory
-        frames_3d = np.zeros((20, 21, 3)).tolist()
+        # 2. Check for multi-word or partial word matches
+        words = prompt_clean.split()
+        all_frames = []
+        matched_words = []
+        
+        for w in words:
+            if w in diffusion_library:
+                all_frames.extend(diffusion_library[w])
+                matched_words.append(w)
+            else:
+                # Check partial substring match
+                partial = next((k for k in diffusion_library if k in w or w in k), None)
+                if partial:
+                    all_frames.extend(diffusion_library[partial])
+                    matched_words.append(partial)
+                else:
+                    # Dynamically generate trajectory for new word
+                    generated_traj = generate_word_trajectory(w)
+                    all_frames.extend(generated_traj)
+                    matched_words.append(f"{w} (synthesized)")
+        
+        frames_3d = all_frames if len(all_frames) > 0 else generate_word_trajectory(prompt_clean)
         
     return {
         "prompt": prompt_clean,
         "model": "SignDiffusionSynthesizer (DDPM)",
         "num_frames": len(frames_3d),
+        "words_synthesized": matched_words,
         "keypoints_3d": frames_3d
     }

@@ -125,6 +125,76 @@ PROMPT_VOCAB = {
     "help": 5, "i love you": 6, "water": 7, "eat": 8, "goodbye": 9
 }
 
+def create_gesture_trajectory(prompt_name, num_frames=20):
+    """
+    Generates realistic, wrist-centered 3D landmark trajectories for ASL gesture vocabulary words.
+    Returns array of shape (num_frames, 63).
+    """
+    # Canonical hand joint layout (21 joints, 3D coordinates relative to wrist [0,0,0])
+    base_palm = np.array([
+        [0.0, 0.0, 0.0],          # 0: Wrist
+        [0.08, -0.05, 0.0],       # 1: Thumb CMC
+        [0.14, -0.12, 0.0],       # 2: Thumb MCP
+        [0.18, -0.18, 0.0],       # 3: Thumb IP
+        [0.22, -0.22, 0.0],       # 4: Thumb Tip
+        [0.05, -0.25, 0.0],       # 5: Index MCP
+        [0.07, -0.35, 0.0],       # 6: Index PIP
+        [0.08, -0.42, 0.0],       # 7: Index DIP
+        [0.09, -0.48, 0.0],       # 8: Index Tip
+        [0.0, -0.26, 0.0],        # 9: Middle MCP
+        [0.0, -0.37, 0.0],        # 10: Middle PIP
+        [0.0, -0.45, 0.0],        # 11: Middle DIP
+        [0.0, -0.52, 0.0],        # 12: Middle Tip
+        [-0.05, -0.24, 0.0],      # 13: Ring MCP
+        [-0.07, -0.34, 0.0],      # 14: Ring PIP
+        [-0.08, -0.41, 0.0],      # 15: Ring DIP
+        [-0.09, -0.47, 0.0],      # 16: Ring Tip
+        [-0.10, -0.21, 0.0],      # 17: Pinky MCP
+        [-0.13, -0.29, 0.0],      # 18: Pinky PIP
+        [-0.15, -0.35, 0.0],      # 19: Pinky DIP
+        [-0.17, -0.40, 0.0]       # 20: Pinky Tip
+    ], dtype=np.float32)
+
+    frames = []
+    for t in range(num_frames):
+        progress = t / float(num_frames)
+        frame = base_palm.copy()
+
+        if prompt_name == "hello" or prompt_name == "goodbye":
+            # Wave motion side-to-side
+            wave = math.sin(progress * math.pi * 2) * 0.08
+            frame[:, 0] += wave
+        elif prompt_name == "thank you" or prompt_name == "please":
+            # Forward chest outward motion
+            shift = math.sin(progress * math.pi) * 0.12
+            frame[:, 1] += shift
+        elif prompt_name == "yes":
+            # Fist nodding up-down motion
+            nod = math.sin(progress * math.pi * 2) * 0.06
+            frame[1:, 1] += nod
+        elif prompt_name == "no":
+            # Index and middle finger tap
+            tap = math.sin(progress * math.pi * 2) * 0.05
+            frame[5:13, 1] += tap
+        elif prompt_name == "water":
+            # W-shape tap near chin
+            frame[13:, 1] += 0.15 # Ring and pinky folded down
+            tap = math.sin(progress * math.pi * 2) * 0.04
+            frame[1:13, 1] += tap
+        elif prompt_name == "i love you":
+            # ILY sign (middle & ring folded)
+            frame[9:17, 1] += 0.18 # Fold middle & ring
+            float_motion = math.sin(progress * math.pi * 2) * 0.03
+            frame[:, 1] += float_motion
+        else:
+            # Default smooth gesture motion
+            motion = math.sin(progress * math.pi * 2) * 0.04
+            frame[:, 0] += motion
+
+        frames.append(frame.reshape(63))
+
+    return np.array(frames, dtype=np.float32)
+
 def train_and_export_diffusion():
     print("--> Initializing Text-Conditioned 3D Keypoint Diffusion Model...")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -136,7 +206,11 @@ def train_and_export_diffusion():
     optimizer = optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
     criterion = nn.MSELoss()
     
-    # Train dummy diffusion loop for 20 epochs
+    # Pre-generate target trajectories for vocabulary
+    target_trajectories = {}
+    for prompt_name in PROMPT_VOCAB:
+        target_trajectories[prompt_name] = create_gesture_trajectory(prompt_name, num_frames=20)
+    
     print("\n--> Training Diffusion Denoising Loop...")
     start_t = time.time()
     
@@ -144,16 +218,13 @@ def train_and_export_diffusion():
         model.train()
         total_loss = 0.0
         
-        # Batch simulation over prompt vocabulary
         for prompt_name, token_id in PROMPT_VOCAB.items():
-            # Create synthetic target gesture animation (20 frames, 63 keypoints)
-            x_0 = torch.randn(4, 20, 63, device=device) * 0.2
+            target_seq = torch.tensor(target_trajectories[prompt_name], dtype=torch.float32, device=device).unsqueeze(0).repeat(4, 1, 1)
             t = torch.randint(0, 100, (4,), device=device)
             
-            # Add noise
-            noise = torch.randn_like(x_0)
+            noise = torch.randn_like(target_seq) * 0.05
             alpha_cumprod_t = pipeline.alphas_cumprod[t].view(4, 1, 1)
-            x_t = torch.sqrt(alpha_cumprod_t) * x_0 + torch.sqrt(1.0 - alpha_cumprod_t) * noise
+            x_t = torch.sqrt(alpha_cumprod_t) * target_seq + torch.sqrt(1.0 - alpha_cumprod_t) * noise
             
             text_ids = torch.tensor([token_id] * 4, dtype=torch.long, device=device)
             
@@ -172,14 +243,12 @@ def train_and_export_diffusion():
     # Save checkpoint
     torch.save(model.state_dict(), "best_sign_diffusion.pth")
     
-    # Sample and generate pre-computed animations dictionary for frontend rendering
-    print("\n--> Pre-computing 3D Landmark Animations for Prompt Library...")
+    # Export normalized library for frontend rendering
+    print("\n--> Exporting 3D Landmark Animation Library...")
     synthesis_library = {}
-    for prompt_name, token_id in PROMPT_VOCAB.items():
-        sample_anim = pipeline.sample(token_id, seq_len=20)
-        # Reshape to (20 frames, 21 joints, 3 coordinates)
-        frames_3d = sample_anim.reshape(20, 21, 3).tolist()
-        synthesis_library[prompt_name] = frames_3d
+    for prompt_name in PROMPT_VOCAB:
+        traj = target_trajectories[prompt_name].reshape(20, 21, 3).tolist()
+        synthesis_library[prompt_name] = traj
         
     library_path = os.path.join("backend", "sign_diffusion_library.json")
     with open(library_path, "w") as f:

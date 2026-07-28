@@ -10,7 +10,7 @@ def export():
     model = SpatialTemporalSignTransformer(input_dim=63, d_model=128, nhead=4, num_layers=3, num_classes=26, max_len=30)
     
     if os.path.exists("best_transformer_model.pth"):
-        state_dict = torch.load("best_transformer_model.pth", map_location=device)
+        state_dict = torch.load("best_transformer_model.pth", map_location=device, weights_only=True)
         model.load_state_dict(state_dict)
         
     model.eval()

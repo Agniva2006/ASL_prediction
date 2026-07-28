@@ -5,13 +5,22 @@ import json
 import time
 import math
 import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, top_k_accuracy_score
-import matplotlib.pyplot as plt
+
+try:
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, top_k_accuracy_score
+except Exception as e:
+    print(f"Scikit-learn import warning: {e}")
+
+try:
+    import matplotlib.pyplot as plt
+except Exception:
+    plt = None
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
@@ -208,43 +217,7 @@ class ASLAugmentedDataset(Dataset):
 # ==========================================
 # 4. DEEP NEURAL NETWORK MODEL ARCHITECTURE
 # ==========================================
-class ASLClassifierV2(nn.Module):
-    def __init__(self, input_dim=63, num_classes=26):
-        super().__init__()
-        self.in_proj = nn.Sequential(
-            nn.Linear(input_dim, 256),
-            nn.LayerNorm(256),
-            nn.GELU(),
-            nn.Dropout(0.2)
-        )
-        
-        self.block1 = nn.Sequential(
-            nn.Linear(256, 256),
-            nn.LayerNorm(256),
-            nn.GELU(),
-            nn.Dropout(0.2),
-            nn.Linear(256, 256),
-            nn.LayerNorm(256),
-            nn.GELU()
-        )
-        
-        self.block2 = nn.Sequential(
-            nn.Linear(256, 128),
-            nn.LayerNorm(128),
-            nn.GELU(),
-            nn.Dropout(0.2),
-            nn.Linear(128, 128),
-            nn.LayerNorm(128),
-            nn.GELU()
-        )
-        
-        self.head = nn.Linear(128, num_classes)
-        
-    def forward(self, x):
-        h = self.in_proj(x)
-        h = h + self.block1(h) # Skip connection
-        h2 = self.block2(h)
-        return self.head(h2)
+from asl_models import ASLClassifierV2
 
 # ==========================================
 # 5. TRAINING & EVALUATION PIPELINE
@@ -323,7 +296,7 @@ def train_and_evaluate():
     print(f"\nTraining completed in {time.time() - start_time:.2f} seconds. Best Val Acc: {best_acc*100:.2f}%")
     
     # Load Best Model for Final Evaluation
-    model.load_state_dict(torch.load("best_asl_model.pth"))
+    model.load_state_dict(torch.load("best_asl_model.pth", map_location=device, weights_only=True))
     model.eval()
     
     all_preds, all_probs, all_targets = [], [], []
@@ -365,19 +338,23 @@ def train_and_evaluate():
         json.dump(eval_meta, f, indent=2)
         
     # Save Confusion Matrix Plot
-    cm = confusion_matrix(all_targets, all_preds)
-    plt.figure(figsize=(10, 8))
-    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
-    plt.title(f"ASL Landmark Classifier Confusion Matrix (Acc: {acc*100:.1f}%)")
-    plt.colorbar()
-    tick_marks = np.arange(len(LABELS))
-    plt.xticks(tick_marks, LABELS, rotation=45)
-    plt.yticks(tick_marks, LABELS)
-    plt.tight_layout()
-    plt.ylabel('True Label')
-    plt.xlabel('Predicted Label')
-    plt.savefig("confusion_matrix.png", dpi=150)
-    plt.close()
+    if plt is not None:
+        try:
+            cm = confusion_matrix(all_targets, all_preds)
+            plt.figure(figsize=(10, 8))
+            plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+            plt.title(f"ASL Landmark Classifier Confusion Matrix (Acc: {acc*100:.1f}%)")
+            plt.colorbar()
+            tick_marks = np.arange(len(LABELS))
+            plt.xticks(tick_marks, LABELS, rotation=45)
+            plt.yticks(tick_marks, LABELS)
+            plt.tight_layout()
+            plt.ylabel('True Label')
+            plt.xlabel('Predicted Label')
+            plt.savefig("confusion_matrix.png", dpi=150)
+            plt.close()
+        except Exception as e:
+            print(f"Plotting confusion matrix skipped: {e}")
     
     # ==========================================
     # 6. ONNX EXPORT

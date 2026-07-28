@@ -30,6 +30,7 @@ ASL_prediction/
 │   ├── label_map.json              # Class index mapping
 │   └── requirements.txt            # Backend Python dependencies
 ├── frontend/
+│   ├── home.html                   # Landing Page: Platform overview & navigation hub
 │   ├── index.html                  # Page 1: Real-Time AI Sign Recognizer
 │   ├── dictionary.html             # Page 2: ASL Visual Dictionary & Learning Hub
 │   ├── generator.html              # Page 3: Text-to-Sign AI Diffusion Synthesizer
@@ -37,6 +38,7 @@ ASL_prediction/
 │   ├── script.js                   # MediaPipe tracking, client normalization, API logic
 │   ├── generator.js                # 3D Skeleton animation player engine
 │   └── style.css                   # Ultra-premium cosmic glassmorphism design system
+├── asl_models.py                   # Shared neural network architecture definitions
 ├── train_all_models.py             # Master multi-model training & export orchestrator
 ├── train_robust_model.py           # PyTorch MLP training script
 ├── transformer_model.py            # Spatial-Temporal Transformer training script
@@ -77,13 +79,15 @@ python -m uvicorn app:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ### 4️⃣ Open Web Platform
-Open [`frontend/index.html`](file:///c:/Users/DELL/Desktop/ntblm/ASL_prediction/frontend/index.html) in your browser!
+Open `frontend/index.html` in your browser!
+
+The frontend auto-detects a local backend on ports `8005`, `8001`, `8000`, or `8080`. If no local API is running, it falls back to the deployed Render backend at `https://asl-prediction.onrender.com`.
 
 ---
 
 ## 📜 Deployment
 
-Refer to [`deployment_guide.md`](file:///c:/Users/DELL/Desktop/ntblm/ASL_prediction/deployment_guide.md) for 1-click deployment instructions on **Render**, **Vercel**, **Docker**, and **GitHub Pages**.
+Refer to [`deployment_guide.md`](deployment_guide.md) for 1-click deployment instructions on **Render**, **Vercel**, **Docker**, and **GitHub Pages**.
 
 ---
 

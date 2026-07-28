@@ -91,10 +91,10 @@ Given target 3D landmark sequence $\mathbf{x}_0 \in \mathbb{R}^{T \times 63}$ an
 
 | Page File | Title | Primary Function |
 | :--- | :--- | :--- |
-| 🏠 [`frontend/index.html`](file:///c:/Users/DELL/Desktop/ntblm/ASL_prediction/frontend/index.html) | **Real-Time AI Sign Recognizer** | Real-time webcam tracking, MLP/Transformer inference, Word Builder, TTS speech playback. |
-| 📚 [`frontend/dictionary.html`](file:///c:/Users/DELL/Desktop/ntblm/ASL_prediction/frontend/dictionary.html) | **ASL Visual Dictionary & Learning Hub** | Interactive visual grid for alphabets (A-Z), phrases, numbers, search, and TTS audio. |
-| 🪄 [`frontend/generator.html`](file:///c:/Users/DELL/Desktop/ntblm/ASL_prediction/frontend/generator.html) | **AI Text-to-Sign Diffusion Synthesizer** | Type custom prompts and view DDPM-synthesized 3D hand skeleton gesture animations. |
-| ♿ [`frontend/accessibility.html`](file:///c:/Users/DELL/Desktop/ntblm/ASL_prediction/frontend/accessibility.html) | **Special Needs Empowerment Guide** | High-contrast dark mode, OpenDyslexic font options, assistive guides for mute & special needs learners. |
+| 🏠 `frontend/index.html` | **Real-Time AI Sign Recognizer** | Real-time webcam tracking, MLP/Transformer inference, Word Builder, TTS speech playback. |
+| 📚 `frontend/dictionary.html` | **ASL Visual Dictionary & Learning Hub** | Interactive visual grid for alphabets (A-Z), phrases, numbers, search, and TTS audio. |
+| 🪄 `frontend/generator.html` | **AI Text-to-Sign Diffusion Synthesizer** | Type custom prompts and view DDPM-synthesized 3D hand skeleton gesture animations. |
+| ♿ `frontend/accessibility.html` | **Special Needs Empowerment Guide** | High-contrast dark mode, OpenDyslexic font options, assistive guides for mute & special needs learners. |
 
 ---
 
@@ -113,5 +113,5 @@ python test_advanced_backend.py
 
 ### Open Multi-Page Web Application
 ```powershell
-Start-Process "c:\Users\DELL\Desktop\ntblm\ASL_prediction\frontend\index.html"
+Start-Process "frontend\index.html"
 ```
