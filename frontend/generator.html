@@ -11,12 +11,13 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet" />
 
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style-auth.css" />
 </head>
 <body>
   <header class="navbar">
     <div class="logo">
       <span class="icon">ASL</span>
-      <a href="index.html" class="brand" style="text-decoration:none;color:inherit">Sign<span class="highlight">0</span></a>
+      <a href="home.html" class="brand" style="text-decoration:none;color:inherit">Sign<span class="highlight">0</span></a>
       <span class="badge-tag">Sign Synthesizer</span>
     </div>
 
@@ -35,7 +36,15 @@
       <p class="page-subtitle">Type a word or phrase and view a 3D landmark animation generated from the backend sign library.</p>
     </div>
 
-    <div class="generator-grid">
+    <div class="generator-grid" style="position:relative">
+      <!-- Lock Overlay for Non-Developer Users -->
+      <div class="panel-lock-overlay" id="lock-overlay-generator" style="display:none">
+        <div class="lock-icon">🪄</div>
+        <div class="lock-title">Text-to-Sign Diffusion Synthesizer</div>
+        <div class="lock-desc">Synthesize dynamic frame-by-frame 3D hand gesture trajectories from text prompts using DDPM. Requires Developer plan.</div>
+        <button class="lock-upgrade-btn" onclick="redirectToBilling()">⚡ Upgrade to Developer — $49/mo</button>
+      </div>
+
       <div class="card generator-input-card">
         <h2 class="card-title">Prompt Input</h2>
 
@@ -92,5 +101,11 @@
   </main>
 
   <script src="generator.js"></script>
+  <script>
+    // Redirect helper to handle tab locks
+    function redirectToBilling() {
+      window.location.href = "/frontend/index.html?modal=billing";
+    }
+  </script>
 </body>
 </html>

@@ -15,13 +15,14 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
 
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style-auth.css" />
 </head>
 <body>
   <header class="navbar">
     <div class="logo">
       <span class="icon">ASL</span>
       <a href="home.html" class="brand" style="text-decoration:none;color:inherit">Sign<span class="highlight">0</span></a>
-      <span class="badge-tag">AI Engine 3.0</span>
+      <span class="badge-tag">AI Engine 4.0</span>
     </div>
 
     <nav class="nav-links">
@@ -34,10 +35,21 @@
 
     <div class="status-container">
       <div id="statusDot" class="status-dot dot-yellow"></div>
-      <span id="statusText" class="status-text">Initializing MediaPipe...</span>
+      <span id="statusText" class="status-text">Initializing...</span>
     </div>
 
     <div class="header-controls">
+      <!-- User / Auth display element -->
+      <button id="loginBtn" class="btn-icon" style="background:var(--accent-blue);color:#fff">Sign In</button>
+      
+      <button class="user-chip" id="userChipBtn" style="display:none">
+        <div class="user-avatar" id="sidebarAvatar">?</div>
+        <div class="user-info">
+          <div class="user-name" id="sidebarUsername">User</div>
+          <span class="plan-badge free" id="sidebarPlanBadge">Free</span>
+        </div>
+      </button>
+
       <button id="ttsToggle" class="btn-icon active" title="Toggle speech audio">Speech ON</button>
       <button id="dictToggleBtn" class="btn-icon" title="Open ASL dictionary">Dictionary</button>
     </div>
@@ -45,13 +57,26 @@
 
   <main class="main-container">
     <section class="video-section">
-      <div class="video-card">
+      <div class="video-card" style="position:relative">
+        <!-- Sequence Lock Overlay for Non-Pro Users -->
+        <div class="panel-lock-overlay" id="lock-overlay-transformer" style="display:none">
+          <div class="lock-icon">🧠</div>
+          <div class="lock-title">Spatial-Temporal Transformer</div>
+          <div class="lock-desc">Analyze real-time sequence trajectories of 3D hand joints over time. Available on Pro &amp; Developer plans.</div>
+          <button class="lock-upgrade-btn" onclick="openSubscriptionModal()">⚡ Upgrade to Pro — $9/mo</button>
+        </div>
+
         <div class="canvas-wrapper">
           <video id="video" autoplay playsinline muted></video>
           <canvas id="canvas" width="640" height="480"></canvas>
           <div id="videoOverlay" class="video-overlay">
             <span class="spinner"></span>
             <span class="overlay-msg">Starting camera feed...</span>
+          </div>
+
+          <!-- Celebration Success Overlay -->
+          <div class="success-flash-overlay" id="successFlash">
+            <div class="success-msg-splash">CORRECT!</div>
           </div>
         </div>
 
@@ -76,8 +101,34 @@
     </section>
 
     <section class="dashboard-section">
+      <!-- Gamified Practice Panel -->
+      <div class="card practice-card" id="practiceCard" style="display:none">
+        <h2 class="card-title">🎯 ASL Challenge Mode</h2>
+        <div class="practice-body">
+          <div class="practice-challenge-box">
+            <span style="font-size:0.75rem;color:var(--text-muted)">FORM THE SIGN FOR:</span>
+            <span class="challenge-target" id="challengeTarget">A</span>
+            <button class="btn-sm" id="challengeTipBtn" style="font-size:10px;padding:2px 8px;margin-top:2px">Show Tip</button>
+          </div>
+          <div class="practice-stats">
+            <div class="p-stat-item">
+              <span class="p-stat-lbl">Score:</span>
+              <span class="p-stat-val" id="practiceScore">0</span>
+            </div>
+            <div class="p-stat-item">
+              <span class="p-stat-lbl">Streak:</span>
+              <span class="p-stat-val" id="practiceStreak">🔥 0</span>
+            </div>
+            <button class="btn-generate" id="skipChallengeBtn" style="font-size:11px;padding:6px;margin:0">Skip Sign</button>
+          </div>
+        </div>
+      </div>
+
       <div class="card prediction-card">
-        <h2 class="card-title">Real-Time Recognition</h2>
+        <div class="card-header-flex" style="display:flex; justify-content:space-between; align-items:center">
+          <h2 class="card-title" style="margin:0">Real-Time Recognition</h2>
+          <button id="practiceModeToggleBtn" class="btn-sm" style="background:rgba(168,85,247,0.15);border-color:rgba(168,85,247,0.3);color:var(--accent-purple)">Practice Mode</button>
+        </div>
 
         <div class="prediction-body">
           <div class="letter-display-box">
@@ -125,8 +176,9 @@
     </section>
   </main>
 
+  <!-- ── DICTIONARY MODAL ── -->
   <div id="dictModal" class="modal-overlay hidden">
-    <div class="modal-card">
+    <div class="modal-card" style="position:relative">
       <div class="modal-header">
         <div class="modal-title-group">
           <h2>ASL Visual Dictionary & Guide</h2>
@@ -145,7 +197,192 @@
         <input type="text" id="dictSearchInput" placeholder="Search letter, sign name, or phrase..." />
       </div>
 
+      <!-- Embedded 3D Dictionary Previewer container -->
+      <div class="dict-visualizer-overlay" id="dictVisualizerBox" style="display:none">
+        <div class="dict-canvas-frame">
+          <canvas id="dictCanvas" width="320" height="240"></canvas>
+        </div>
+        <div class="dict-player-controls">
+          <button class="btn-sm" id="dictPlayPauseBtn">Play</button>
+          <span style="font-size:10px;color:var(--text-muted);display:flex;align-items:center">Drag on canvas to rotate</span>
+          <button class="btn-sm btn-danger" id="dictCloseVisBtn">Close 3D View</button>
+        </div>
+      </div>
+
       <div id="dictCardsGrid" class="dict-grid"></div>
+    </div>
+  </div>
+
+  <!-- ── AUTH MODAL ── -->
+  <div id="authModal" class="auth-overlay">
+    <div class="auth-container">
+      <button class="modal-close-btn" onclick="closeAuthModal()">&times;</button>
+      <div class="auth-brand">
+        <div class="auth-logo-wrap">ASL</div>
+        <h2>Sign0 AI Platform</h2>
+        <p>Enterprise Sign Recognition & Synthesizer</p>
+      </div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab-btn active" id="authTabLogin" onclick="switchAuthTab('login')">Sign In</button>
+        <button class="auth-tab-btn" id="authTabRegister" onclick="switchAuthTab('register')">Register</button>
+      </div>
+
+      <div class="auth-msg" id="authMsg"></div>
+
+      <!-- Login Pane -->
+      <div class="auth-pane active" id="authPaneLogin">
+        <form id="loginForm">
+          <div class="auth-field">
+            <label>Username</label>
+            <input type="text" id="loginUsername" required placeholder="e.g. signer_joe" />
+          </div>
+          <div class="auth-field">
+            <label>Password</label>
+            <input type="password" id="loginPassword" required placeholder="••••••••" />
+          </div>
+          <button type="submit" class="auth-submit-btn" id="loginSubmitBtn">🔓 Authorize &amp; Connect</button>
+        </form>
+        <div class="auth-switch">Don't have an account? <a href="#" onclick="switchAuthTab('register');return false;">Create one</a></div>
+      </div>
+
+      <!-- Register Pane -->
+      <div class="auth-pane" id="authPaneRegister">
+        <form id="registerForm">
+          <div class="auth-field">
+            <label>Full Name</label>
+            <input type="text" id="regFullname" placeholder="Joe Signer" />
+          </div>
+          <div class="auth-field">
+            <label>Username *</label>
+            <input type="text" id="regUsername" required placeholder="signer_joe" />
+          </div>
+          <div class="auth-field">
+            <label>Email Address *</label>
+            <input type="email" id="regEmail" required placeholder="joe@hospital.org" />
+          </div>
+          <div class="auth-field">
+            <label>Role</label>
+            <select id="regRole">
+              <option value="student">Student / Learner</option>
+              <option value="educator">Educator / Teacher</option>
+              <option value="researcher">Researcher</option>
+              <option value="developer">Developer</option>
+            </select>
+          </div>
+          <div class="auth-field">
+            <label>Password *</label>
+            <input type="password" id="regPassword" required placeholder="Min. 6 characters" />
+          </div>
+          <button type="submit" class="auth-submit-btn" id="registerSubmitBtn" style="background:linear-gradient(135deg,var(--accent-purple),var(--accent-pink))">🆕 Create Account</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PROFILE MODAL ── -->
+  <div id="profileModal" class="auth-overlay">
+    <div class="profile-modal-box">
+      <button class="modal-close-btn" onclick="closeProfileModal()">&times;</button>
+      <div class="profile-header">
+        <div class="profile-avatar-large" id="profileAvatarLarge" style="background:var(--accent-blue)">U</div>
+        <div style="flex:1">
+          <h2 class="profile-header-name" id="profileHeaderName">Username</h2>
+          <div class="profile-header-meta">
+            <span class="role-tag" id="profileRoleTag">Student</span>
+            <span class="plan-badge free" id="profilePlanBadge">Free</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="profile-tabs">
+        <button class="profile-tab active" data-ptab="info" onclick="switchProfileTab('info')">Account</button>
+        <button class="profile-tab" data-ptab="usage" onclick="switchProfileTab('usage')">Usage &amp; API Keys</button>
+        <button class="profile-tab" data-ptab="activity" onclick="switchProfileTab('activity')">Activity Log</button>
+      </div>
+
+      <div class="profile-content">
+        <!-- Info Pane -->
+        <div class="profile-pane active" id="ptab-info">
+          <div class="auth-msg" id="profileInfoMsg"></div>
+          <div class="auth-field">
+            <label>Full Name</label>
+            <input class="pf-input" type="text" id="pfFullname" />
+          </div>
+          <div class="auth-field">
+            <label>Email Address</label>
+            <input class="pf-input" type="email" id="pfEmail" />
+          </div>
+          <button class="pf-save-btn" id="pfSaveInfoBtn" onclick="saveProfileInfo()">Save Changes</button>
+          <button class="pf-save-btn btn-danger" style="float:right;background:rgba(239,68,68,0.2)" onclick="doLogout()">Logout</button>
+        </div>
+
+        <!-- Usage Pane -->
+        <div class="profile-pane" id="ptab-usage">
+          <div class="usage-grid">
+            <div class="usage-card-item">
+              <span class="usage-card-val" id="pfQueriesToday">0</span>
+              <span class="usage-card-lbl">Today's Predictions</span>
+            </div>
+            <div class="usage-card-item">
+              <span class="usage-card-val" id="pfDailyRemaining">0</span>
+              <span class="usage-card-lbl">Daily Remaining</span>
+            </div>
+          </div>
+
+          <div class="usage-quota-bar">
+            <div class="uqb-label">
+              <span>Daily Limit Usage</span>
+              <span id="pfDailyLabel">0 / 20</span>
+            </div>
+            <div class="uqb-track">
+              <div class="uqb-fill" id="pfDailyBar" style="width:0%"></div>
+            </div>
+          </div>
+
+          <!-- Developer API Key Section -->
+          <div id="apiKeySection" style="display:none;margin-top:20px;padding-top:16px;border-top:1px solid var(--glass-border)">
+            <label class="pf-label">Your SDK API Key</label>
+            <p style="font-size:10px;color:var(--text-muted);margin-bottom:6px">Use this key to authorize HTTP requests from Python or Node.js SDKs.</p>
+            <div class="api-key-box">
+              <span class="api-key-text" id="apiKeyVal">No key generated yet.</span>
+              <button class="btn-sm" id="genApiKeyBtn" onclick="generateApiKey()">Generate Key</button>
+            </div>
+          </div>
+
+          <!-- Manage Subscription Portal Button -->
+          <div id="stripePortalSection" style="display:none;margin-top:20px;padding-top:16px;border-top:1px solid var(--glass-border)">
+            <label class="pf-label">Billing Management</label>
+            <p style="font-size:10px;color:var(--text-muted);margin-bottom:8px">View invoices, update card details, or cancel your plan on Stripe.</p>
+            <button class="pf-save-btn" style="width:100%" onclick="openStripePortal()">Manage Billing on Stripe</button>
+          </div>
+        </div>
+
+        <!-- Activity Pane -->
+        <div class="profile-pane" id="ptab-activity">
+          <div id="profileActivityContent" style="font-size:0.78rem;color:var(--text-muted)">
+            Loading activity log...
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SUBSCRIPTION MODAL ── -->
+  <div id="subscriptionModal" class="auth-overlay">
+    <div class="profile-modal-box" style="max-width:850px">
+      <button class="modal-close-btn" onclick="closeSubscriptionModal()">&times;</button>
+      <div class="profile-header" style="text-align:center;justify-content:center;flex-direction:column">
+        <h2 class="profile-header-name" style="font-size:1.6rem">🚀 Choose Your Learning Tier</h2>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin-top:4px">Upgrade to unlock sequence transformer, 3D animations, and developer key generation.</p>
+      </div>
+
+      <div class="profile-content">
+        <div class="plans-grid" id="plansGrid">
+          <!-- Populated by JS -->
+        </div>
+        <p style="font-size:11px;color:var(--text-dim);text-align:center;margin-top:12px">🛠️ <strong>Mock Sandbox:</strong> Upgrades apply immediately. Stripe payment routes are simulated for portfolio inspection.</p>
+      </div>
     </div>
   </div>
 

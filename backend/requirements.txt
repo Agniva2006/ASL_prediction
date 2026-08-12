@@ -3,3 +3,8 @@ uvicorn
 onnxruntime
 numpy
 pydantic
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+bcrypt
+stripe

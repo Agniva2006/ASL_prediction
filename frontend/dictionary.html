@@ -11,12 +11,13 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet" />
 
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style-auth.css" />
 </head>
 <body>
   <header class="navbar">
     <div class="logo">
       <span class="icon">ASL</span>
-      <a href="index.html" class="brand" style="text-decoration:none;color:inherit">Sign<span class="highlight">0</span></a>
+      <a href="home.html" class="brand" style="text-decoration:none;color:inherit">Sign<span class="highlight">0</span></a>
       <span class="badge-tag">Learning Hub</span>
     </div>
 
@@ -29,10 +30,22 @@
     </nav>
   </header>
 
-  <main class="page-container">
+  <main class="page-container" style="position:relative">
     <div class="page-header">
       <h1 class="page-title">Interactive ASL Visual Dictionary</h1>
-      <p class="page-subtitle">A learning hub for ASL letters, daily phrases, and numbers with speech playback.</p>
+      <p class="page-subtitle">A learning hub for ASL letters, daily phrases, and numbers with animated 3D previews.</p>
+    </div>
+
+    <!-- Embedded 3D Canvas visualizer preview -->
+    <div class="dict-visualizer-overlay" id="dictVisualizerBox" style="display:none; margin-bottom: 24px;">
+      <div class="dict-canvas-frame">
+        <canvas id="dictCanvas" width="320" height="240"></canvas>
+      </div>
+      <div class="dict-player-controls">
+        <button class="btn-sm btn-primary" id="dictPlayPauseBtn" style="padding: 6px 14px;">Pause</button>
+        <span style="font-size:11px;color:var(--text-muted);display:flex;align-items:center;padding:0 8px">Drag on canvas to rotate hand</span>
+        <button class="btn-sm btn-danger" id="dictCloseVisBtn" style="padding: 6px 14px;">Close 3D View</button>
+      </div>
     </div>
 
     <div class="dict-control-panel">
@@ -104,6 +117,33 @@
     const searchEl = document.getElementById("dictSearchInput");
     const filterBtns = document.querySelectorAll(".filter-btn");
 
+    // Interactive 3D Canvas visualizer player references
+    const dictVisualizerBox = document.getElementById("dictVisualizerBox");
+    const dictPlayPauseBtn = document.getElementById("dictPlayPauseBtn");
+    const dictCloseVisBtn = document.getElementById("dictCloseVisBtn");
+    const dictCanvas = document.getElementById("dictCanvas");
+    const dctx = dictCanvas.getContext("2d");
+
+    let dictAnimFrames = [];
+    let dictFrameIndex = 0;
+    let dictIsPlaying = false;
+    let dictTimer = null;
+
+    let rotationX = -0.3;
+    let rotationY = 0.2;
+    let isDragging = false;
+    let lastMouseX = 0;
+    let lastMouseY = 0;
+
+    const HAND_CONNECTIONS = [
+      [0, 1], [1, 2], [2, 3], [3, 4],       // Thumb
+      [0, 5], [5, 6], [6, 7], [7, 8],       // Index
+      [5, 9], [9, 10], [10, 11], [11, 12],  // Middle
+      [9, 13], [13, 14], [14, 15], [15, 16],// Ring
+      [13, 17], [17, 18], [18, 19], [19, 20],// Pinky
+      [0, 17]                               // Palm base
+    ];
+
     function renderCards() {
       const q = searchEl.value.toLowerCase().trim();
       const items = ASL_DICTIONARY_DATA.filter((item) =>
@@ -125,9 +165,12 @@
             <span class="dict-card-badge">${item.badge}</span>
           </div>
           <p class="dict-card-desc">${item.desc}</p>
-          <div class="dict-card-footer">
+          <div class="dict-card-footer" style="display:flex;gap:8px">
             <button class="dict-btn-speak" type="button" data-speak="${escapeHtml(`${item.title}: ${item.desc}`)}">
-              Hear Pronunciation
+              Pronounce
+            </button>
+            <button class="dict-btn-speak" type="button" style="background:var(--accent-purple);border-color:rgba(168,85,247,0.3)" onclick="animateDictSign('${escapeHtml(item.title)}')">
+              Visualize 3D
             </button>
           </div>
         </div>
@@ -152,6 +195,189 @@
         const utterance = new SpeechSynthesisUtterance(text);
         window.speechSynthesis.speak(utterance);
       }
+    }
+
+    // 3D Visualizer control functions
+    function setup3DDragControls(canvas) {
+      canvas.addEventListener("mousedown", (e) => {
+        isDragging = true;
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+      });
+      canvas.addEventListener("mousemove", (e) => {
+        if (!isDragging) return;
+        const deltaX = e.clientX - lastMouseX;
+        const deltaY = e.clientY - lastMouseY;
+        rotationY += deltaX * 0.01;
+        rotationX += deltaY * 0.01;
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+        if (!dictIsPlaying && dictAnimFrames.length > 0) {
+          render3DFrame(dictAnimFrames[dictFrameIndex]);
+        }
+      });
+      window.addEventListener("mouseup", () => { isDragging = false; });
+    }
+    setup3DDragControls(dictCanvas);
+
+    function render3DFrame(frame3D) {
+      const W = dictCanvas.width;
+      const H = dictCanvas.height;
+      const cx = W / 2;
+      const cy = H / 2 + 10;
+      dctx.clearRect(0, 0, W, H);
+
+      // Render grid background
+      dctx.strokeStyle = "rgba(168, 85, 247, 0.05)";
+      dctx.lineWidth = 1;
+      for (let x = 0; x < W; x += 30) {
+        dctx.beginPath(); dctx.moveTo(x, 0); dctx.lineTo(x, H); dctx.stroke();
+      }
+      for (let y = 0; y < H; y += 30) {
+        dctx.beginPath(); dctx.moveTo(0, y); dctx.lineTo(W, y); dctx.stroke();
+      }
+
+      if (!frame3D || frame3D.length < 21) return;
+
+      const wristX = frame3D[0][0];
+      const wristY = frame3D[0][1];
+      const wristZ = frame3D[0][2];
+      const centered = frame3D.map(([x, y, z]) => [x - wristX, y - wristY, z - wristZ]);
+
+      const cosY = Math.cos(rotationY);
+      const sinY = Math.sin(rotationY);
+      const cosX = Math.cos(rotationX);
+      const sinX = Math.sin(rotationX);
+
+      const rotated = centered.map(([x, y, z]) => {
+        const x1 = x * cosY - z * sinY;
+        const z1 = x * sinY + z * cosY;
+        const y2 = y * cosX - z1 * sinX;
+        return [x1, y2];
+      });
+
+      let maxDist = 0;
+      for (const [x, y] of rotated) {
+        const dist = Math.sqrt(x * x + y * y);
+        if (dist > maxDist) maxDist = dist;
+      }
+      if (maxDist < 1e-6) maxDist = 1.0;
+
+      const scale = 80 / maxDist;
+      const coords2D = rotated.map(([x, y]) => [cx + x * scale, cy + y * scale]);
+
+      dctx.lineWidth = 3.0;
+      dctx.strokeStyle = "#a855f7";
+      dctx.shadowColor = "#a855f7";
+      dctx.shadowBlur = 8;
+
+      for (const [i, j] of HAND_CONNECTIONS) {
+        const [x1, y1] = coords2D[i];
+        const [x2, y2] = coords2D[j];
+        dctx.beginPath(); dctx.moveTo(x1, y1); dctx.lineTo(x2, y2); dctx.stroke();
+      }
+
+      dctx.shadowBlur = 0;
+      for (let i = 0; i < coords2D.length; i++) {
+        const [x, y] = coords2D[i];
+        dctx.beginPath(); dctx.arc(x, y, i === 0 ? 6 : 3.5, 0, 2 * Math.PI);
+        dctx.fillStyle = i === 0 ? "#ef4444" : "#22c55e";
+        dctx.fill();
+        dctx.strokeStyle = "#fff";
+        dctx.lineWidth = 1;
+        dctx.stroke();
+      }
+    }
+
+    async function animateDictSign(word) {
+      // Gating validation
+      const token = localStorage.getItem("sign0_token");
+      const userStr = localStorage.getItem("sign0_user");
+      if (!token || !userStr) {
+        alert("Please sign in from the Recognizer page to visualize signs.");
+        return;
+      }
+      const user = JSON.parse(userStr);
+      if (user.plan === "free") {
+        alert("Visualizing signs requires a Pro or Developer plan.");
+        return;
+      }
+
+      dictVisualizerBox.style.display = "flex";
+      dictIsPlaying = false;
+      if (dictTimer) clearInterval(dictTimer);
+
+      const API_URL = "https://asl-prediction-v2.onrender.com";
+      try {
+        const res = await fetch(`${API_URL}/synthesize_sign`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`
+          },
+          body: JSON.stringify({ prompt: word })
+        });
+        if (!res.ok) throw new Error("API Offline");
+        const data = await res.json();
+        dictAnimFrames = data.keypoints_3d;
+        dictFrameIndex = 0;
+        playDictFrames();
+      } catch (err) {
+        dictAnimFrames = generateLocalTrajectoryFallback(word);
+        dictFrameIndex = 0;
+        playDictFrames();
+      }
+    }
+
+    function playDictFrames() {
+      dictIsPlaying = true;
+      dictPlayPauseBtn.innerText = "Pause";
+      dictTimer = setInterval(() => {
+        if (dictAnimFrames.length === 0) return;
+        render3DFrame(dictAnimFrames[dictFrameIndex]);
+        dictFrameIndex = (dictFrameIndex + 1) % dictAnimFrames.length;
+      }, 75);
+    }
+
+    dictPlayPauseBtn.addEventListener("click", () => {
+      if (dictIsPlaying) {
+        dictIsPlaying = false;
+        dictPlayPauseBtn.innerText = "Play";
+        if (dictTimer) clearInterval(dictTimer);
+      } else {
+        playDictFrames();
+      }
+    });
+
+    dictCloseVisBtn.addEventListener("click", () => {
+      dictVisualizerBox.style.display = "none";
+      dictIsPlaying = false;
+      if (dictTimer) clearInterval(dictTimer);
+    });
+
+    function generateLocalTrajectoryFallback(word) {
+      const frames = [];
+      const basePalm = [
+        [0.0, 0.0, 0.0], [0.08, -0.05, 0.0], [0.14, -0.12, 0.0], [0.18, -0.18, 0.0], [0.22, -0.22, 0.0],
+        [0.05, -0.25, 0.0], [0.07, -0.35, 0.0], [0.08, -0.42, 0.0], [0.09, -0.48, 0.0],
+        [0.0, -0.26, 0.0], [0.0, -0.37, 0.0], [0.0, -0.45, 0.0], [0.0, -0.52, 0.0],
+        [-0.05, -0.24, 0.0], [-0.07, -0.34, 0.0], [-0.08, -0.41, 0.0], [-0.09, -0.47, 0.0],
+        [-0.10, -0.21, 0.0], [-0.13, -0.29, 0.0], [-0.15, -0.35, 0.0], [-0.17, -0.40, 0.0]
+      ];
+      const hash = word.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
+      const freq = 1.0 + (hash % 3) * 0.5;
+      for (let t = 0; t < 20; t++) {
+        const progress = t / 20.0;
+        const frame = basePalm.map(pt => [...pt]);
+        const wave = Math.sin(progress * Math.PI * 2 * freq) * 0.06;
+        const lift = Math.sin(progress * Math.PI) * 0.08;
+        for (let i = 0; i < frame.length; i++) {
+          frame[i][0] += wave;
+          if (i >= 5) frame[i][1] -= lift;
+        }
+        frames.push(frame);
+      }
+      return frames;
     }
 
     filterBtns.forEach((btn) => {

@@ -11,6 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
 
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style-auth.css" />
   <style>
     /* ===== HOME PAGE HERO & SECTIONS ===== */
     .hero {
@@ -439,6 +440,17 @@
       <a href="generator.html" class="nav-link">Sign Synthesizer</a>
       <a href="accessibility.html" class="nav-link">Accessibility</a>
     </nav>
+
+    <div class="header-controls">
+      <button id="loginBtn" class="btn-icon" style="background:var(--accent-blue);color:#fff">Sign In</button>
+      <button class="user-chip" id="userChipBtn" style="display:none">
+        <div class="user-avatar" id="sidebarAvatar">?</div>
+        <div class="user-info">
+          <div class="user-name" id="sidebarUsername">User</div>
+          <span class="plan-badge free" id="sidebarPlanBadge">Free</span>
+        </div>
+      </button>
+    </div>
   </header>
 
   <!-- ===== HERO SECTION ===== -->
@@ -588,5 +600,180 @@
       <a href="https://github.com/Agniva2006/ASL_prediction" target="_blank">GitHub Repository</a>
     </p>
   </footer>
+
+  <!-- ── AUTH MODAL ── -->
+  <div id="authModal" class="auth-overlay">
+    <div class="auth-container">
+      <button class="modal-close-btn" onclick="closeAuthModal()">&times;</button>
+      <div class="auth-brand">
+        <div class="auth-logo-wrap">ASL</div>
+        <h2>Sign0 AI Platform</h2>
+        <p>Enterprise Sign Recognition & Synthesizer</p>
+      </div>
+
+      <div class="auth-tabs">
+        <button class="auth-tab-btn active" id="authTabLogin" onclick="switchAuthTab('login')">Sign In</button>
+        <button class="auth-tab-btn" id="authTabRegister" onclick="switchAuthTab('register')">Register</button>
+      </div>
+
+      <div class="auth-msg" id="authMsg"></div>
+
+      <!-- Login Pane -->
+      <div class="auth-pane active" id="authPaneLogin">
+        <form id="loginForm">
+          <div class="auth-field">
+            <label>Username</label>
+            <input type="text" id="loginUsername" required placeholder="e.g. signer_joe" />
+          </div>
+          <div class="auth-field">
+            <label>Password</label>
+            <input type="password" id="loginPassword" required placeholder="••••••••" />
+          </div>
+          <button type="submit" class="auth-submit-btn" id="loginSubmitBtn">🔓 Authorize &amp; Connect</button>
+        </form>
+        <div class="auth-switch">Don't have an account? <a href="#" onclick="switchAuthTab('register');return false;">Create one</a></div>
+      </div>
+
+      <!-- Register Pane -->
+      <div class="auth-pane" id="authPaneRegister">
+        <form id="registerForm">
+          <div class="auth-field">
+            <label>Full Name</label>
+            <input type="text" id="regFullname" placeholder="Joe Signer" />
+          </div>
+          <div class="auth-field">
+            <label>Username *</label>
+            <input type="text" id="regUsername" required placeholder="signer_joe" />
+          </div>
+          <div class="auth-field">
+            <label>Email Address *</label>
+            <input type="email" id="regEmail" required placeholder="joe@hospital.org" />
+          </div>
+          <div class="auth-field">
+            <label>Role</label>
+            <select id="regRole">
+              <option value="student">Student / Learner</option>
+              <option value="educator">Educator / Teacher</option>
+              <option value="researcher">Researcher</option>
+              <option value="developer">Developer</option>
+            </select>
+          </div>
+          <div class="auth-field">
+            <label>Password *</label>
+            <input type="password" id="regPassword" required placeholder="Min. 6 characters" />
+          </div>
+          <button type="submit" class="auth-submit-btn" id="registerSubmitBtn" style="background:linear-gradient(135deg,var(--accent-purple),var(--accent-pink))">🆕 Create Account</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PROFILE MODAL ── -->
+  <div id="profileModal" class="auth-overlay">
+    <div class="profile-modal-box">
+      <button class="modal-close-btn" onclick="closeProfileModal()">&times;</button>
+      <div class="profile-header">
+        <div class="profile-avatar-large" id="profileAvatarLarge" style="background:var(--accent-blue)">U</div>
+        <div style="flex:1">
+          <h2 class="profile-header-name" id="profileHeaderName">Username</h2>
+          <div class="profile-header-meta">
+            <span class="role-tag" id="profileRoleTag">Student</span>
+            <span class="plan-badge free" id="profilePlanBadge">Free</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="profile-tabs">
+        <button class="profile-tab active" data-ptab="info" onclick="switchProfileTab('info')">Account</button>
+        <button class="profile-tab" data-ptab="usage" onclick="switchProfileTab('usage')">Usage &amp; API Keys</button>
+        <button class="profile-tab" data-ptab="activity" onclick="switchProfileTab('activity')">Activity Log</button>
+      </div>
+
+      <div class="profile-content">
+        <!-- Info Pane -->
+        <div class="profile-pane active" id="ptab-info">
+          <div class="auth-msg" id="profileInfoMsg"></div>
+          <div class="auth-field">
+            <label>Full Name</label>
+            <input class="pf-input" type="text" id="pfFullname" />
+          </div>
+          <div class="auth-field">
+            <label>Email Address</label>
+            <input class="pf-input" type="email" id="pfEmail" />
+          </div>
+          <button class="pf-save-btn" id="pfSaveInfoBtn" onclick="saveProfileInfo()">Save Changes</button>
+          <button class="pf-save-btn btn-danger" style="float:right;background:rgba(239,68,68,0.2)" onclick="doLogout()">Logout</button>
+        </div>
+
+        <!-- Usage Pane -->
+        <div class="profile-pane" id="ptab-usage">
+          <div class="usage-grid">
+            <div class="usage-card-item">
+              <span class="usage-card-val" id="pfQueriesToday">0</span>
+              <span class="usage-card-lbl">Today's Predictions</span>
+            </div>
+            <div class="usage-card-item">
+              <span class="usage-card-val" id="pfDailyRemaining">0</span>
+              <span class="usage-card-lbl">Daily Remaining</span>
+            </div>
+          </div>
+
+          <div class="usage-quota-bar">
+            <div class="uqb-label">
+              <span>Daily Limit Usage</span>
+              <span id="pfDailyLabel">0 / 20</span>
+            </div>
+            <div class="uqb-track">
+              <div class="uqb-fill" id="pfDailyBar" style="width:0%"></div>
+            </div>
+          </div>
+
+          <!-- Developer API Key Section -->
+          <div id="apiKeySection" style="display:none;margin-top:20px;padding-top:16px;border-top:1px solid var(--glass-border)">
+            <label class="pf-label">Your SDK API Key</label>
+            <p style="font-size:10px;color:var(--text-muted);margin-bottom:6px">Use this key to authorize HTTP requests from Python or Node.js SDKs.</p>
+            <div class="api-key-box">
+              <span class="api-key-text" id="apiKeyVal">No key generated yet.</span>
+              <button class="btn-sm" id="genApiKeyBtn" onclick="generateApiKey()">Generate Key</button>
+            </div>
+          </div>
+
+          <!-- Manage Subscription Portal Button -->
+          <div id="stripePortalSection" style="display:none;margin-top:20px;padding-top:16px;border-top:1px solid var(--glass-border)">
+            <label class="pf-label">Billing Management</label>
+            <p style="font-size:10px;color:var(--text-muted);margin-bottom:8px">View invoices, update card details, or cancel your plan on Stripe.</p>
+            <button class="pf-save-btn" style="width:100%" onclick="openStripePortal()">Manage Billing on Stripe</button>
+          </div>
+        </div>
+
+        <!-- Activity Pane -->
+        <div class="profile-pane" id="ptab-activity">
+          <div id="profileActivityContent" style="font-size:0.78rem;color:var(--text-muted)">
+            Loading activity log...
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SUBSCRIPTION MODAL ── -->
+  <div id="subscriptionModal" class="auth-overlay">
+    <div class="profile-modal-box" style="max-width:850px">
+      <button class="modal-close-btn" onclick="closeSubscriptionModal()">&times;</button>
+      <div class="profile-header" style="text-align:center;justify-content:center;flex-direction:column">
+        <h2 class="profile-header-name" style="font-size:1.6rem">🚀 Choose Your Learning Tier</h2>
+        <p style="color:var(--text-muted);font-size:0.85rem;margin-top:4px">Upgrade to unlock sequence transformer, 3D animations, and developer key generation.</p>
+      </div>
+
+      <div class="profile-content">
+        <div class="plans-grid" id="plansGrid">
+          <!-- Populated by JS -->
+        </div>
+        <p style="font-size:11px;color:var(--text-dim);text-align:center;margin-top:12px">🛠️ <strong>Mock Sandbox:</strong> Upgrades apply immediately. Stripe payment routes are simulated for portfolio inspection.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="auth-client.js"></script>
 </body>
 </html>

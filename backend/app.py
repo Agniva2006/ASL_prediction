@@ -3,25 +3,49 @@ import time
 import numpy as np
 import onnxruntime as ort
 import os
-from typing import Annotated
+import secrets
+from typing import Annotated, Optional, List, Dict
+from datetime import datetime, timedelta
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Header, status
 from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from backend.auth import (
+    hash_password,
+    verify_password,
+    create_access_token,
+    get_current_user,
+    get_optional_user,
+    record_api_call,
+    get_usage,
+    check_rate_limit,
+    load_users,
+    save_users,
+    PLANS,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
+)
+from backend.payment import router as payment_router
 
 app = FastAPI(
     title="Sign0 AI Engine API — MLP + Transformer + Diffusion",
-    description="Multi-Model API featuring Static MLP, Spatial-Temporal Transformer, and Generative Sign Diffusion",
-    version="3.0.0"
+    description="Multi-Model API featuring Static MLP, Spatial-Temporal Transformer, and Generative Sign Diffusion with JWT Auth and Stripe Mock Billing",
+    version="4.0.0"
 )
 
+# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-RateLimit-Remaining", "X-RateLimit-Limit", "X-RateLimit-Reset"],
 )
+
+# Include Payment Router
+app.include_router(payment_router)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -66,6 +90,31 @@ else:
 
 NUM_FEATURES = 63
 
+# ──────────────────────────────────────────────
+# Pydantic Schemas
+# ──────────────────────────────────────────────
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    email: str
+    full_name: Optional[str] = ""
+    role: Optional[str] = "student"  # student | educator | researcher | developer
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+    remember_me: Optional[bool] = True
+
+class ProfileUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+
+class PasswordChangeRequest(BaseModel):
+    old_password: str
+    new_password: str
+
 class StaticInputData(BaseModel):
     keypoints: Annotated[list[float], Field(min_length=63, max_length=63)]
 
@@ -74,6 +123,10 @@ class SequenceInputData(BaseModel):
 
 class SynthesizePromptData(BaseModel):
     prompt: str
+
+# ──────────────────────────────────────────────
+# Helper Functions
+# ──────────────────────────────────────────────
 
 def normalize_landmarks(kp):
     kp = np.array(kp, dtype=np.float32)
@@ -93,25 +146,199 @@ def softmax(x):
     e = np.exp(x - np.max(x))
     return e / e.sum()
 
+def _safe_user_public(username: str, u: dict) -> dict:
+    return {
+        "username": username,
+        "email": u.get("email", ""),
+        "full_name": u.get("full_name", ""),
+        "role": u.get("role", "student"),
+        "plan": u.get("plan", "free"),
+        "api_key": u.get("api_key", ""),
+        "created_at": u.get("created_at", ""),
+        "last_login": u.get("last_login", ""),
+    }
+
+# ──────────────────────────────────────────────
+# Core Routes
+# ──────────────────────────────────────────────
+
 @app.get("/")
 def root():
     return {
         "status": "online",
         "service": "Sign0 Multi-Model AI Engine",
-        "version": "3.0.0",
+        "version": "4.0.0",
         "models": {
             "mlp_loaded": mlp_session is not None,
             "spatial_temporal_transformer_loaded": transformer_session is not None,
             "diffusion_library_entries": len(diffusion_library)
         },
-        "classes": len(idx2label)
+        "classes": len(idx2label),
+        "plans": list(PLANS.keys())
     }
 
+# ──────────────────────────────────────────────
+# Auth Endpoints
+# ──────────────────────────────────────────────
+
+@app.post("/auth/register")
+def register(req: RegisterRequest):
+    username = req.username.strip().lower()
+    if not username or len(username) < 3:
+        return {"success": False, "message": "Username must be at least 3 characters."}
+    if not req.password or len(req.password) < 6:
+        return {"success": False, "message": "Password must be at least 6 characters."}
+    if not req.email or "@" not in req.email:
+        return {"success": False, "message": "A valid email address is required."}
+
+    users = load_users()
+    if username in users:
+        return {"success": False, "message": "Username already taken."}
+
+    # Ensure email is unique
+    for u in users.values():
+        if u.get("email", "").lower() == req.email.lower():
+            return {"success": False, "message": "Email address already registered."}
+
+    users[username] = {
+        "password": hash_password(req.password),
+        "email": req.email,
+        "full_name": req.full_name or "",
+        "role": req.role or "student",
+        "plan": "free",
+        "api_key": "",
+        "created_at": datetime.utcnow().isoformat() + "Z",
+        "last_login": "",
+        "usage_daily": {},
+        "usage_monthly": {},
+        "activity": [],
+        "sessions": []
+    }
+    save_users(users)
+    return {"success": True, "message": "Registration successful! You can now log in."}
+
+@app.post("/auth/login")
+def login(req: LoginRequest):
+    username = req.username.strip().lower()
+    users = load_users()
+
+    if username not in users:
+        return {"success": False, "message": "Invalid username or password."}
+
+    u = users[username]
+    if not verify_password(req.password, u["password"]):
+        return {"success": False, "message": "Invalid username or password."}
+
+    # Record login session
+    now = datetime.utcnow().isoformat() + "Z"
+    u["last_login"] = now
+    sessions = u.setdefault("sessions", [])
+    sessions.append({"login_at": now, "ts": time.time()})
+    u["sessions"] = sessions[-10:]  # Keep last 10
+    save_users(users)
+
+    expires = timedelta(days=30 if req.remember_me else 1)
+    token = create_access_token({"sub": username}, expires_delta=expires)
+
+    return {
+        "success": True,
+        "message": "Login successful.",
+        "access_token": token,
+        "token_type": "bearer",
+        "user": _safe_user_public(username, u),
+    }
+
+@app.get("/auth/me")
+async def get_me(current_user: dict = Depends(get_current_user)):
+    username = current_user["username"]
+    users = load_users()
+    u = users.get(username, current_user)
+    usage = get_usage(username)
+    profile = _safe_user_public(username, u)
+    profile["usage"] = usage
+    return {"success": True, "user": profile}
+
+@app.patch("/auth/profile/update")
+async def update_profile(req: ProfileUpdateRequest, current_user: dict = Depends(get_current_user)):
+    username = current_user["username"]
+    users = load_users()
+    u = users[username]
+
+    if req.full_name is not None:
+        u["full_name"] = req.full_name.strip()
+    if req.role is not None:
+        u["role"] = req.role.strip()
+    if req.email is not None:
+        email = req.email.strip()
+        if "@" not in email:
+            raise HTTPException(status_code=400, detail="Invalid email address.")
+        for un, ud in users.items():
+            if un != username and ud.get("email", "").lower() == email.lower():
+                raise HTTPException(status_code=409, detail="Email already in use by another account.")
+        u["email"] = email
+
+    save_users(users)
+    return {"success": True, "message": "Profile updated successfully.", "user": _safe_user_public(username, u)}
+
+@app.post("/auth/profile/change-password")
+async def change_password(req: PasswordChangeRequest, current_user: dict = Depends(get_current_user)):
+    username = current_user["username"]
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters.")
+
+    users = load_users()
+    u = users[username]
+
+    if not verify_password(req.old_password, u["password"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect.")
+
+    u["password"] = hash_password(req.new_password)
+    save_users(users)
+    return {"success": True, "message": "Password changed successfully."}
+
+@app.post("/auth/profile/generate-apikey")
+async def generate_apikey(current_user: dict = Depends(get_current_user)):
+    username = current_user["username"]
+    if current_user.get("plan") != "developer":
+        raise HTTPException(status_code=403, detail="API key provisioning is only available on the Developer plan.")
+
+    users = load_users()
+    key = f"sign0_live_dev_{secrets.token_hex(12)}"
+    users[username]["api_key"] = key
+    save_users(users)
+    return {"success": True, "api_key": key}
+
+@app.get("/auth/usage")
+async def user_usage(current_user: dict = Depends(get_current_user)):
+    usage = get_usage(current_user["username"])
+    return {"success": True, "usage": usage}
+
+@app.get("/auth/activity")
+async def user_activity(current_user: dict = Depends(get_current_user)):
+    users = load_users()
+    u = users.get(current_user["username"], {})
+    activity = u.get("activity", [])
+    return {"success": True, "activity": list(reversed(activity[-20:]))}
+
+@app.get("/auth/sessions")
+async def user_sessions(current_user: dict = Depends(get_current_user)):
+    users = load_users()
+    u = users.get(current_user["username"], {})
+    sessions = u.get("sessions", [])
+    return {"success": True, "sessions": list(reversed(sessions))}
+
+# ──────────────────────────────────────────────
+# Predict & AI Endpoints (Protected)
+# ──────────────────────────────────────────────
+
 @app.post("/predict")
-def predict_static(data: StaticInputData):
+def predict_static(data: StaticInputData, current_user: dict = Depends(get_current_user)):
     if mlp_session is None:
         raise HTTPException(status_code=500, detail="MLP ONNX Model session is not loaded.")
         
+    username = current_user["username"]
+    remaining = check_rate_limit(username)
+    
     try:
         t0 = time.perf_counter()
         x = normalize_landmarks(data.keypoints)
@@ -127,21 +354,36 @@ def predict_static(data: StaticInputData):
         pred_idx = int(top_indices[0])
         latency_ms = round((time.perf_counter() - t0) * 1000, 2)
         
-        return {
+        record_api_call(username, "/predict")
+        new_remaining = remaining - 1
+
+        response = JSONResponse(content={
             "model": "ASLClassifierV2 (MLP)",
             "prediction": idx2label[pred_idx],
             "confidence": float(probs[pred_idx]),
             "top_3": top_3,
-            "latency_ms": latency_ms
-        }
+            "latency_ms": latency_ms,
+            "rate_limit": {"remaining": new_remaining}
+        })
+        response.headers["X-RateLimit-Remaining"] = str(new_remaining)
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"MLP Inference error: {str(e)}")
 
 @app.post("/predict_sequence")
-def predict_sequence(data: SequenceInputData):
+def predict_sequence(data: SequenceInputData, current_user: dict = Depends(get_current_user)):
     if transformer_session is None:
         raise HTTPException(status_code=500, detail="Spatial-Temporal Transformer ONNX Model is not loaded.")
         
+    username = current_user["username"]
+    plan = current_user.get("plan", "free")
+    
+    # Feature Authorization Gate
+    if not PLANS.get(plan, {}).get("features", {}).get("sequence_transformer", False):
+        raise HTTPException(status_code=403, detail="Spatial-Temporal Transformer requires Pro or Developer plan.")
+        
+    remaining = check_rate_limit(username)
+    
     try:
         t0 = time.perf_counter()
         seq_array = np.array([normalize_landmarks(kp)[0] for kp in data.sequence], dtype=np.float32)
@@ -159,42 +401,33 @@ def predict_sequence(data: SequenceInputData):
         pred_idx = int(top_indices[0])
         latency_ms = round((time.perf_counter() - t0) * 1000, 2)
         
-        return {
+        record_api_call(username, "/predict_sequence")
+        new_remaining = remaining - 1
+
+        response = JSONResponse(content={
             "model": "SpatialTemporalSignTransformer",
             "prediction": idx2label[pred_idx],
             "confidence": float(probs[pred_idx]),
             "top_3": top_3,
-            "latency_ms": latency_ms
-        }
+            "latency_ms": latency_ms,
+            "rate_limit": {"remaining": new_remaining}
+        })
+        response.headers["X-RateLimit-Remaining"] = str(new_remaining)
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Transformer Inference error: {str(e)}")
 
+# ──────────────────────────────────────────────
+# Generative Diffusion
+# ──────────────────────────────────────────────
+
 def generate_word_trajectory(word: str, num_frames=20):
-    """
-    Generates dynamic wrist-centered 3D landmark trajectory for arbitrary words/letters.
-    """
     base_palm = np.array([
-        [0.0, 0.0, 0.0],          # 0: Wrist
-        [0.08, -0.05, 0.0],       # 1: Thumb CMC
-        [0.14, -0.12, 0.0],       # 2: Thumb MCP
-        [0.18, -0.18, 0.0],       # 3: Thumb IP
-        [0.22, -0.22, 0.0],       # 4: Thumb Tip
-        [0.05, -0.25, 0.0],       # 5: Index MCP
-        [0.07, -0.35, 0.0],       # 6: Index PIP
-        [0.08, -0.42, 0.0],       # 7: Index DIP
-        [0.09, -0.48, 0.0],       # 8: Index Tip
-        [0.0, -0.26, 0.0],        # 9: Middle MCP
-        [0.0, -0.37, 0.0],        # 10: Middle PIP
-        [0.0, -0.45, 0.0],        # 11: Middle DIP
-        [0.0, -0.52, 0.0],        # 12: Middle Tip
-        [-0.05, -0.24, 0.0],      # 13: Ring MCP
-        [-0.07, -0.34, 0.0],      # 14: Ring PIP
-        [-0.08, -0.41, 0.0],      # 15: Ring DIP
-        [-0.09, -0.47, 0.0],      # 16: Ring Tip
-        [-0.10, -0.21, 0.0],      # 17: Pinky MCP
-        [-0.13, -0.29, 0.0],      # 18: Pinky PIP
-        [-0.15, -0.35, 0.0],      # 19: Pinky DIP
-        [-0.17, -0.40, 0.0]       # 20: Pinky Tip
+        [0.0, 0.0, 0.0], [0.08, -0.05, 0.0], [0.14, -0.12, 0.0], [0.18, -0.18, 0.0], [0.22, -0.22, 0.0],
+        [0.05, -0.25, 0.0], [0.07, -0.35, 0.0], [0.08, -0.42, 0.0], [0.09, -0.48, 0.0],
+        [0.0, -0.26, 0.0], [0.0, -0.37, 0.0], [0.0, -0.45, 0.0], [0.0, -0.52, 0.0],
+        [-0.05, -0.24, 0.0], [-0.07, -0.34, 0.0], [-0.08, -0.41, 0.0], [-0.09, -0.47, 0.0],
+        [-0.10, -0.21, 0.0], [-0.13, -0.29, 0.0], [-0.15, -0.35, 0.0], [-0.17, -0.40, 0.0]
     ], dtype=np.float32)
 
     frames = []
@@ -214,7 +447,15 @@ def generate_word_trajectory(word: str, num_frames=20):
     return frames
 
 @app.post("/synthesize_sign")
-def synthesize_sign(data: SynthesizePromptData):
+def synthesize_sign(data: SynthesizePromptData, current_user: dict = Depends(get_current_user)):
+    username = current_user["username"]
+    plan = current_user.get("plan", "free")
+    
+    # Feature Authorization Gate
+    if not PLANS.get(plan, {}).get("features", {}).get("diffusion_synthesizer", False):
+        raise HTTPException(status_code=403, detail="Generative DDPM Sign Synthesizer requires Developer plan.")
+        
+    check_rate_limit(username)
     prompt_clean = data.prompt.lower().strip()
     if not prompt_clean:
         raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
@@ -234,18 +475,18 @@ def synthesize_sign(data: SynthesizePromptData):
                 all_frames.extend(diffusion_library[w])
                 matched_words.append(w)
             else:
-                # Check partial substring match
                 partial = next((k for k in diffusion_library if k in w or w in k), None)
                 if partial:
                     all_frames.extend(diffusion_library[partial])
                     matched_words.append(partial)
                 else:
-                    # Dynamically generate trajectory for new word
                     generated_traj = generate_word_trajectory(w)
                     all_frames.extend(generated_traj)
                     matched_words.append(f"{w} (synthesized)")
         
         frames_3d = all_frames if len(all_frames) > 0 else generate_word_trajectory(prompt_clean)
+        
+    record_api_call(username, "/synthesize_sign")
         
     return {
         "prompt": prompt_clean,

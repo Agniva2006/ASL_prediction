@@ -1,5 +1,5 @@
 // ==========================================================================
-// SIGN0 TEXT-TO-SIGN DIFFUSION ANIMATION RENDERER
+// SIGN0 TEXT-TO-SIGN DIFFUSION ANIMATION RENDERER (v4.0)
 // ==========================================================================
 
 const promptInput = document.getElementById("promptInput");
@@ -35,6 +35,16 @@ let isLooping = true;
 let animTimer = null;
 let playbackSpeed = 1.0;
 
+// Drag-to-Rotate interaction parameters
+let rotationX = -0.3; // pitch
+let rotationY = 0.2;  // yaw
+let isDragging = false;
+let lastMouseX = 0;
+let lastMouseY = 0;
+
+// JWT Token
+let authToken = null;
+
 // Auto-detect working local backend (tests 127.0.0.1 and localhost across ports)
 async function checkBackendConnection() {
   for (const host of LOCAL_HOSTS) {
@@ -42,7 +52,7 @@ async function checkBackendConnection() {
       try {
         const url = `http://${host}:${port}`;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1000);
+        const timeoutId = setTimeout(() => controller.abort(), 800);
         const res = await fetch(`${url}/`, { method: "GET", signal: controller.signal });
         clearTimeout(timeoutId);
         if (res.ok) {
@@ -50,9 +60,7 @@ async function checkBackendConnection() {
           apiReady = true;
           return;
         }
-      } catch (err) {
-        // Continue checking
-      }
+      } catch (err) {}
     }
   }
 
@@ -73,7 +81,6 @@ async function checkBackendConnection() {
 
 function setPrompt(val) {
   promptInput.value = val;
-  // Highlight active chip
   document.querySelectorAll("[data-prompt]").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.prompt.toLowerCase() === val.toLowerCase());
   });
@@ -96,9 +103,14 @@ async function generateAnimation() {
       throw new Error("Backend API unavailable");
     }
 
+    const headers = { "Content-Type": "application/json" };
+    if (authToken) {
+      headers["Authorization"] = `Bearer ${authToken}`;
+    }
+
     const res = await fetch(`${activeApiBaseUrl}/synthesize_sign`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: headers,
       body: JSON.stringify({ prompt: promptText }),
     });
 
@@ -161,7 +173,7 @@ function renderFrame(frame3D) {
   ctx.clearRect(0, 0, W, H);
 
   // Background Grid Glow
-  ctx.strokeStyle = "rgba(56, 189, 248, 0.06)";
+  ctx.strokeStyle = "rgba(56, 189, 248, 0.05)";
   ctx.lineWidth = 1;
   for (let x = 0; x < W; x += 40) {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
@@ -172,25 +184,38 @@ function renderFrame(frame3D) {
 
   if (!frame3D || frame3D.length < 21) return;
 
-  // Auto-center landmark coordinates around wrist (joint 0)
   const wristX = frame3D[0][0];
   const wristY = frame3D[0][1];
   const wristZ = frame3D[0][2];
 
   const centered = frame3D.map(([x, y, z]) => [x - wristX, y - wristY, z - wristZ]);
 
-  // Compute maximum distance from wrist for dynamic scaling
+  // Rotate coordinates using Pitch (rotationX) and Yaw (rotationY)
+  const cosY = Math.cos(rotationY);
+  const sinY = Math.sin(rotationY);
+  const cosX = Math.cos(rotationX);
+  const sinX = Math.sin(rotationX);
+
+  const rotated = centered.map(([x, y, z]) => {
+    // Y-rotation (Yaw)
+    const x1 = x * cosY - z * sinY;
+    const z1 = x * sinY + z * cosY;
+    // X-rotation (Pitch)
+    const y2 = y * cosX - z1 * sinX;
+    return [x1, y2];
+  });
+
+  // Scale coordinates dynamically
   let maxDist = 0;
-  for (const [x, y, z] of centered) {
-    const dist = Math.sqrt(x * x + y * y + z * z);
+  for (const [x, y] of rotated) {
+    const dist = Math.sqrt(x * x + y * y);
     if (dist > maxDist) maxDist = dist;
   }
   if (maxDist < 1e-6) maxDist = 1.0;
 
-  const scale = 170 / maxDist; // Fit comfortably inside canvas
+  const scale = 160 / maxDist; // Fit inside canvas
 
-  // Project 3D to 2D centered on canvas
-  const coords2D = centered.map(([x, y, z]) => [cx + x * scale, cy + y * scale]);
+  const coords2D = rotated.map(([x, y]) => [cx + x * scale, cy + y * scale]);
 
   // Draw 3D Connectors
   ctx.lineWidth = 4.0;
@@ -212,7 +237,7 @@ function renderFrame(frame3D) {
   for (let i = 0; i < coords2D.length; i++) {
     const [x, y] = coords2D[i];
     ctx.beginPath();
-    ctx.arc(x, y, i === 0 ? 8.5 : 5, 0, 2 * Math.PI);
+    ctx.arc(x, y, i === 0 ? 8 : 4.5, 0, 2 * Math.PI);
     ctx.fillStyle = i === 0 ? "#ef4444" : "#22c55e"; // Red wrist, green joints
     ctx.fill();
     ctx.strokeStyle = "#ffffff";
@@ -220,13 +245,14 @@ function renderFrame(frame3D) {
     ctx.stroke();
   }
 
-  // Frame Counter Badge
-  ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-  ctx.font = "12px Inter, sans-serif";
+  // Frame Counter & Pitch/Yaw text info
+  ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+  ctx.font = "11px monospace";
   ctx.fillText(`Frame ${currentFrameIndex + 1} / ${currentAnimation.length}`, 16, 28);
+  ctx.fillText(`Pitch: ${(rotationX * 180 / Math.PI).toFixed(0)}° Yaw: ${(rotationY * 180 / Math.PI).toFixed(0)}°`, 16, 44);
 }
 
-// Fallback dynamic trajectory generator for any text
+// Local trajectory generation fallback
 function generateLocalTrajectory(promptText) {
   const words = promptText.toLowerCase().trim().split(/\s+/);
   const frames = [];
@@ -247,29 +273,94 @@ function generateLocalTrajectory(promptText) {
       const progress = t / 20.0;
       const wave = Math.sin(progress * Math.PI * 2 * waveFreq) * 0.07;
       const lift = Math.sin(progress * Math.PI) * 0.09;
-
-      const frame = basePalm.map(([x, y, z], idx) => {
-        const dx = (idx >= 5) ? wave : wave * 0.5;
-        const dy = (idx >= 5) ? -lift : 0;
-        return [x + dx, y + dy, z];
+      
+      const frame = basePalm.map(pt => {
+        const copy = [...pt];
+        copy[0] += wave;
+        copy[1] -= lift;
+        return copy;
       });
       frames.push(frame);
     }
   }
-
   return frames;
 }
 
-// Event Listeners
-generateBtn.addEventListener("click", generateAnimation);
+// Setup canvas click/drag handlers to rotate
+function setupCanvasDragControls() {
+  animCanvas.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+  });
+  animCanvas.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    const deltaX = e.clientX - lastMouseX;
+    const deltaY = e.clientY - lastMouseY;
 
-promptInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    generateAnimation();
+    rotationY += deltaX * 0.01;
+    rotationX += deltaY * 0.01;
+
+    lastMouseX = e.clientX;
+    lastMouseY = e.clientY;
+
+    if (!isPlaying && currentAnimation && currentAnimation.length > 0) {
+      renderFrame(currentAnimation[currentFrameIndex]);
+    }
+  });
+  window.addEventListener("mouseup", () => {
+    isDragging = false;
+  });
+
+  // Touch Support
+  animCanvas.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1) {
+      isDragging = true;
+      lastMouseX = e.touches[0].clientX;
+      lastMouseY = e.touches[0].clientY;
+    }
+  });
+  animCanvas.addEventListener("touchmove", (e) => {
+    if (!isDragging || e.touches.length !== 1) return;
+    const deltaX = e.touches[0].clientX - lastMouseX;
+    const deltaY = e.touches[0].clientY - lastMouseY;
+
+    rotationY += deltaX * 0.01;
+    rotationX += deltaY * 0.01;
+
+    lastMouseX = e.touches[0].clientX;
+    lastMouseY = e.touches[0].clientY;
+
+    if (!isPlaying && currentAnimation && currentAnimation.length > 0) {
+      renderFrame(currentAnimation[currentFrameIndex]);
+    }
+  });
+  animCanvas.addEventListener("touchend", () => {
+    isDragging = false;
+  });
+}
+
+// Gating checker
+function checkAuthorizationGates() {
+  const token = localStorage.getItem("sign0_token");
+  const userStr = localStorage.getItem("sign0_user");
+  
+  if (token && userStr) {
+    authToken = token;
+    const user = JSON.parse(userStr);
+    const plan = user.plan || "free";
+    if (plan !== "developer") {
+      document.getElementById("lock-overlay-generator").style.display = "flex";
+    } else {
+      document.getElementById("lock-overlay-generator").style.display = "none";
+    }
+  } else {
+    document.getElementById("lock-overlay-generator").style.display = "flex";
   }
-});
+}
 
+// UI triggers
+generateBtn.addEventListener("click", generateAnimation);
 playPauseBtn.addEventListener("click", () => {
   if (isPlaying) {
     stopPlayback();
@@ -277,22 +368,24 @@ playPauseBtn.addEventListener("click", () => {
     startPlayback();
   }
 });
-
 loopBtn.addEventListener("click", () => {
   isLooping = !isLooping;
   loopBtn.classList.toggle("active", isLooping);
   loopBtn.innerText = isLooping ? "Loop: ON" : "Loop: OFF";
 });
-
 speedSelect.addEventListener("change", (e) => {
   playbackSpeed = parseFloat(e.target.value);
   if (isPlaying) startPlayback();
 });
-
-document.querySelectorAll("[data-prompt]").forEach((btn) => {
-  btn.addEventListener("click", () => setPrompt(btn.dataset.prompt));
+document.querySelectorAll(".chip").forEach((chip) => {
+  chip.addEventListener("click", () => setPrompt(chip.dataset.prompt));
 });
 
-// Auto generate on page load
-checkBackendConnection().finally(generateAnimation);
-
+// Init
+async function init() {
+  checkAuthorizationGates();
+  setupCanvasDragControls();
+  await checkBackendConnection();
+  generateAnimation();
+}
+init();
