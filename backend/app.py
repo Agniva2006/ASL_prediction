@@ -1,8 +1,12 @@
+import sys
+import os
+# Ensure parent directory is in sys.path to resolve backend package imports
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import json
 import time
 import numpy as np
 import onnxruntime as ort
-import os
 import secrets
 from typing import Annotated, Optional, List, Dict
 from datetime import datetime, timedelta
