@@ -12,3 +12,11 @@ Thumbs.db
 # IDE settings
 .vscode/
 .idea/
+
+# Environment Variables & Secrets
+.env
+.jwt_secret
+
+# Local Databases
+backend/data/sign0.db
+*.db

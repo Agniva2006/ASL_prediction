@@ -8,7 +8,6 @@ const REMOTE_API_BASE = "https://asl-prediction-v2.onrender.com";
 let activeApiBaseUrl = "http://127.0.0.1:8000";
 
 let currentUser = null;
-let authToken = null;
 
 // Audio Synth
 const SoundFX = {
@@ -70,9 +69,7 @@ async function checkBackendConnection() {
 }
 
 function getAuthHeaders() {
-  const headers = { "Content-Type": "application/json" };
-  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
-  return headers;
+  return { "Content-Type": "application/json" };
 }
 
 function showToast(msg, type = "info") {
@@ -112,13 +109,12 @@ document.getElementById("loginForm").addEventListener("submit", async (e) => {
     const res = await fetch(`${activeApiBaseUrl}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password })
+      body: JSON.stringify({ username, password }),
+      credentials: "include"
     });
     const data = await res.json();
     if (data.success) {
-      authToken = data.access_token;
       currentUser = data.user;
-      localStorage.setItem("sign0_token", authToken);
       localStorage.setItem("sign0_user", JSON.stringify(currentUser));
       closeAuthModal();
       updateUserUI();
@@ -148,7 +144,8 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
     const res = await fetch(`${activeApiBaseUrl}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, email, full_name: fullname, role, password })
+      body: JSON.stringify({ username, email, full_name: fullname, role, password }),
+      credentials: "include"
     });
     const data = await res.json();
     if (data.success) {
@@ -166,9 +163,17 @@ document.getElementById("registerForm").addEventListener("submit", async (e) => 
 });
 
 async function loadMe() {
-  if (!authToken) return;
   try {
-    const res = await fetch(`${activeApiBaseUrl}/auth/me`, { headers: getAuthHeaders() });
+    const res = await fetch(`${activeApiBaseUrl}/auth/me`, { 
+      headers: getAuthHeaders(),
+      credentials: "include" 
+    });
+    if (!res.ok) {
+      currentUser = null;
+      localStorage.removeItem("sign0_user");
+      updateUserUI();
+      return;
+    }
     const data = await res.json();
     if (data.success) {
       currentUser = data.user;
@@ -200,10 +205,11 @@ function updateUserUI() {
   }
 }
 
-window.doLogout = function() {
-  authToken = null;
+window.doLogout = async function() {
+  try {
+    await fetch(`${activeApiBaseUrl}/auth/logout`, { method: "POST", credentials: "include" });
+  } catch(e) {}
   currentUser = null;
-  localStorage.removeItem("sign0_token");
   localStorage.removeItem("sign0_user");
   updateUserUI();
   closeProfileModal();
@@ -252,7 +258,8 @@ window.saveProfileInfo = async function() {
     const res = await fetch(`${activeApiBaseUrl}/auth/profile/update`, {
       method: "PATCH",
       headers: getAuthHeaders(),
-      body: JSON.stringify({ full_name: fullName, email })
+      body: JSON.stringify({ full_name: fullName, email }),
+      credentials: "include"
     });
     const data = await res.json();
     if (data.success) {
@@ -301,7 +308,8 @@ window.openStripePortal = async function() {
     const res = await fetch(`${activeApiBaseUrl}/payment/portal`, {
       method: "POST",
       headers: getAuthHeaders(),
-      body: JSON.stringify({ return_url: window.location.href })
+      body: JSON.stringify({ return_url: window.location.href }),
+      credentials: "include"
     });
     const data = await res.json();
     if (data.success && data.portal_url) {
@@ -320,7 +328,10 @@ window.openStripePortal = async function() {
 async function loadActivityTab() {
   const container = document.getElementById("profileActivityContent");
   try {
-    const res = await fetch(`${activeApiBaseUrl}/auth/activity`, { headers: getAuthHeaders() });
+    const res = await fetch(`${activeApiBaseUrl}/auth/activity`, { 
+      headers: getAuthHeaders(),
+      credentials: "include"
+    });
     const data = await res.json();
     if (data.success && data.activity.length > 0) {
       container.innerHTML = `
@@ -345,7 +356,8 @@ window.generateApiKey = async function() {
   try {
     const res = await fetch(`${activeApiBaseUrl}/auth/profile/generate-apikey`, {
       method: "POST",
-      headers: getAuthHeaders()
+      headers: getAuthHeaders(),
+      credentials: "include"
     });
     const data = await res.json();
     if (data.success) {
@@ -428,7 +440,8 @@ window.triggerCheckout = async function(plan) {
     const res = await fetch(`${activeApiBaseUrl}/payment/checkout`, {
       method: "POST",
       headers: getAuthHeaders(),
-      body: JSON.stringify({ plan })
+      body: JSON.stringify({ plan }),
+      credentials: "include"
     });
     const data = await res.json();
     if (data.success && data.checkout_url) {
@@ -447,17 +460,16 @@ async function handlePaymentRedirect() {
   const params = new URLSearchParams(window.location.search);
   const payment = params.get("payment");
   const plan = params.get("plan");
-  const savedToken = localStorage.getItem("sign0_token");
   const savedUser = localStorage.getItem("sign0_user");
 
-  if (payment === "success" && plan && savedToken && savedUser) {
-    authToken = savedToken;
+  if (payment === "success" && plan && savedUser) {
     currentUser = JSON.parse(savedUser);
     
     try {
       const resp = await fetch(`${activeApiBaseUrl}/payment/webhook`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           type: "checkout.session.completed",
           data: {
@@ -484,14 +496,12 @@ document.getElementById("userChipBtn").addEventListener("click", openProfileModa
 
 async function init() {
   await checkBackendConnection();
-  const savedToken = localStorage.getItem("sign0_token");
   const savedUser = localStorage.getItem("sign0_user");
-  if (savedToken && savedUser) {
-    authToken = savedToken;
+  if (savedUser) {
     currentUser = JSON.parse(savedUser);
     updateUserUI();
-    loadMe();
   }
+  await loadMe();
   await handlePaymentRedirect();
 }
 init();

@@ -11,7 +11,9 @@ from fastapi import APIRouter, HTTPException, Request, Depends, Header, status
 from pydantic import BaseModel
 from typing import Optional
 
-from backend.auth import load_users, save_users, PLANS, get_current_user
+from backend.auth import PLANS, get_current_user
+from backend.database import SessionLocal
+from backend.models import User, Activity
 
 router = APIRouter(prefix="/payment", tags=["billing"])
 
@@ -58,7 +60,11 @@ async def create_checkout_session(req: CheckoutRequest, current_user: dict = Dep
         import secrets
         session_id = f"cs_sandbox_" + secrets.token_hex(16)
         # Sandbox callback redirects to simulated payment success
-        mock_success = req.success_url or f"/frontend/index.html?payment=success&session_id={session_id}&plan={plan}"
+        if req.success_url:
+            mock_success = req.success_url.replace("{CHECKOUT_SESSION_ID}", session_id)
+        else:
+            mock_success = f"/frontend/index.html?payment=success&session_id={session_id}&plan={plan}"
+            
         return {
             "success": True,
             "session_id": session_id,
@@ -69,20 +75,24 @@ async def create_checkout_session(req: CheckoutRequest, current_user: dict = Dep
 
     # Real Stripe Implementation
     try:
-        users = load_users()
-        u = users[username]
-        customer_id = u.get("stripe_customer_id")
-        
-        # 1. Create or retrieve Stripe Customer
-        if not customer_id:
-            customer = stripe.Customer.create(
-                email=email,
-                name=fullname,
-                metadata={"username": username}
-            )
-            customer_id = customer.id
-            u["stripe_customer_id"] = customer_id
-            save_users(users)
+    try:
+        with SessionLocal() as db:
+            user = db.query(User).filter(User.username == username).first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            
+            customer_id = user.stripe_customer_id
+            
+            # 1. Create or retrieve Stripe Customer
+            if not customer_id:
+                customer = stripe.Customer.create(
+                    email=email,
+                    name=fullname,
+                    metadata={"username": username}
+                )
+                customer_id = customer.id
+                user.stripe_customer_id = customer_id
+                db.commit()
 
         price_id = STRIPE_PRICES.get(plan)
         if not price_id:
@@ -118,7 +128,9 @@ async def create_checkout_session(req: CheckoutRequest, current_user: dict = Dep
 @router.post("/portal")
 async def create_portal_session(req: PortalRequest, current_user: dict = Depends(get_current_user)):
     username = current_user["username"]
-    customer_id = current_user.get("stripe_customer_id")
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == username).first()
+        customer_id = user.stripe_customer_id if user else None
     
     if IS_SANDBOX:
         # Sandbox portal returns simulated redirect to billing page
@@ -188,63 +200,50 @@ async def stripe_webhook(request: Request, stripe_signature: Optional[str] = Hea
         subscription_id = session_data.get("subscription")
         
         if username and plan:
-            users = load_users()
-            if username in users:
-                u = users[username]
-                u["plan"] = plan
-                u["stripe_customer_id"] = customer_id
-                u["stripe_subscription_id"] = subscription_id
-                u["subscription_status"] = "active"
-                
-                # Log plan change activity
-                activity = u.setdefault("activity", [])
-                activity.append({
-                    "endpoint": f"Stripe Checkout completed ({plan})",
-                    "timestamp": datetime.utcnow().isoformat() + "Z"
-                })
-                save_users(users)
+            with SessionLocal() as db:
+                user = db.query(User).filter(User.username == username).first()
+                if user:
+                    user.plan = plan
+                    user.stripe_customer_id = customer_id
+                    user.stripe_subscription_id = subscription_id
+                    user.subscription_status = "active"
+                    
+                    act = Activity(username=username, endpoint=f"Stripe Checkout completed ({plan})")
+                    db.add(act)
+                    db.commit()
                 
     elif event_type == "invoice.paid":
         # Handle subscription renewal
         customer_id = session_data.get("customer")
-        subscription_id = session_data.get("subscription")
-        
         if customer_id:
-            users = load_users()
-            # Resolve user by Stripe Customer ID
-            for un, ud in users.items():
-                if ud.get("stripe_customer_id") == customer_id:
-                    ud["subscription_status"] = "active"
+            with SessionLocal() as db:
+                user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+                if user:
+                    user.subscription_status = "active"
                     # Reset usage counters for renewal cycle
-                    ud["usage_daily"] = {}
+                    usage = dict(user.usage) if user.usage else {}
+                    usage.setdefault("daily", {})
+                    usage["daily"] = {} # clear out past days (or reset specifically)
+                    user.usage = usage
                     
-                    activity = ud.setdefault("activity", [])
-                    activity.append({
-                        "endpoint": "Stripe Invoice paid - Subscription renewed",
-                        "timestamp": datetime.utcnow().isoformat() + "Z"
-                    })
-                    save_users(users)
-                    break
+                    act = Activity(username=user.username, endpoint="Stripe Invoice paid - Subscription renewed")
+                    db.add(act)
+                    db.commit()
                     
     elif event_type in ["invoice.payment_failed", "customer.subscription.deleted"]:
         # Handle billing failures or cancellations
         customer_id = session_data.get("customer")
-        
         if customer_id:
-            users = load_users()
-            for un, ud in users.items():
-                if ud.get("stripe_customer_id") == customer_id:
-                    old_plan = ud.get("plan", "free")
-                    ud["plan"] = "free"
-                    ud["subscription_status"] = "canceled"
-                    ud["stripe_subscription_id"] = ""
+            with SessionLocal() as db:
+                user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+                if user:
+                    old_plan = user.plan
+                    user.plan = "free"
+                    user.subscription_status = "canceled"
+                    user.stripe_subscription_id = ""
                     
-                    activity = ud.setdefault("activity", [])
-                    activity.append({
-                        "endpoint": f"Stripe Subscription canceled/deleted (reverted {old_plan} -> free)",
-                        "timestamp": datetime.utcnow().isoformat() + "Z"
-                    })
-                    save_users(users)
-                    break
+                    act = Activity(username=user.username, endpoint=f"Stripe Subscription canceled/deleted (reverted {old_plan} -> free)")
+                    db.add(act)
+                    db.commit()
 
     return {"status": "success"}

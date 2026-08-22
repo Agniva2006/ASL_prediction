@@ -31,14 +31,14 @@ flowchart LR
 ## 🚀 1. Backend Deployment Guide (FastAPI + ONNX Runtime)
 
 ### Option A: Deploy on Render (Recommended — Free & Automated)
-1. **Push Repo to GitHub:** Ensure all files are committed to your GitHub repository `Agniva2006/ASL_prediction`.
+1. **Push Repo to GitHub:** Ensure all files are committed to your GitHub repository.
 2. **Log into Render:** Go to [render.com](https://render.com) and click **New + $\rightarrow$ Web Service**.
-3. **Connect Repository:** Select `Agniva2006/ASL_prediction`.
+3. **Connect Repository:** Select your repository.
 4. **Configuration Options:**
    - **Name:** `asl-prediction-backend`
    - **Environment:** `Python 3`
    - **Build Command:** `pip install -r backend/requirements.txt`
-   - **Start Command:** `uvicorn backend.app:app --host 0.0.0.0 --port $PORT`
+   - **Start Command:** `cd backend && uvicorn app:app --host 0.0.0.0 --port $PORT`
    - **Environment Variables:**
      - `KMP_DUPLICATE_LIB_OK`: `TRUE`
 5. **Deploy:** Click **Create Web Service**. Your API will be live at `https://asl-prediction-v2.onrender.com`.

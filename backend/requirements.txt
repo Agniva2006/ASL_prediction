@@ -8,3 +8,5 @@ passlib[bcrypt]
 python-multipart
 bcrypt
 stripe
+sqlalchemy
+python-dotenv

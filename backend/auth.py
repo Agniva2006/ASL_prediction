@@ -141,44 +141,34 @@ def decode_token(token: str) -> dict:
         )
 
 # ──────────────────────────────────────────────
-# User Database Helpers (JSON)
+# ──────────────────────────────────────────────
+# User Database Helpers (SQLAlchemy)
 # ──────────────────────────────────────────────
 
-USER_DB_DIR = Path(__file__).resolve().parent / "data"
-USER_DB_PATH = USER_DB_DIR / "users_db.json"
+from backend.database import SessionLocal, engine
+from backend.models import User, Activity, Base
+from fastapi import Request
 
-def load_users() -> dict:
-    USER_DB_DIR.mkdir(exist_ok=True, parents=True)
-    if not USER_DB_PATH.exists():
-        # Seed default developer account
-        default_db = {
-            "dev_demo": {
-                "password": hash_password("asldemo2026"),
-                "email": "demo@sign0.ai",
-                "full_name": "Demo Developer",
-                "role": "developer",
-                "plan": "developer",
-                "api_key": "sign0_live_dev_k8s_9281aef10",
-                "created_at": "2026-08-13T00:00:00Z",
-                "usage_daily": {},
-                "usage_monthly": {},
-                "activity": [],
-                "sessions": []
-            }
-        }
-        with open(USER_DB_PATH, "w") as f:
-            json.dump(default_db, f, indent=2)
-        return default_db
-    try:
-        with open(USER_DB_PATH, "r") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+# Create tables
+Base.metadata.create_all(bind=engine)
 
-def save_users(users: dict):
-    USER_DB_DIR.mkdir(exist_ok=True, parents=True)
-    with open(USER_DB_PATH, "w") as f:
-        json.dump(users, f, indent=2)
+def seed_default_user():
+    with SessionLocal() as db:
+        if not db.query(User).filter(User.username == "dev_demo").first():
+            dev_user = User(
+                username="dev_demo",
+                email="demo@sign0.ai",
+                full_name="Demo Developer",
+                hashed_password=hash_password("asldemo2026"),
+                role="developer",
+                plan="developer",
+                api_key="sign0_live_dev_k8s_9281aef10",
+                usage={}
+            )
+            db.add(dev_user)
+            db.commit()
+
+seed_default_user()
 
 # ──────────────────────────────────────────────
 # Rate Limiting & Gating
@@ -191,52 +181,53 @@ def get_current_month_str() -> str:
     return datetime.utcnow().strftime("%Y-%m")
 
 def record_api_call(username: str, endpoint: str):
-    users = load_users()
-    if username not in users:
-        return
-    u = users[username]
-    day = get_current_date_str()
-    month = get_current_month_str()
-    
-    # Record usage counts
-    u.setdefault("usage_daily", {})
-    u.setdefault("usage_monthly", {})
-    u["usage_daily"][day] = u["usage_daily"].get(day, 0) + 1
-    u["usage_monthly"][month] = u["usage_monthly"].get(month, 0) + 1
-    
-    # Log activity
-    activity = u.setdefault("activity", [])
-    activity.append({
-        "endpoint": endpoint,
-        "timestamp": datetime.utcnow().isoformat() + "Z"
-    })
-    u["activity"] = activity[-50:]  # Keep last 50
-    save_users(users)
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            return
+            
+        day = get_current_date_str()
+        month = get_current_month_str()
+        
+        # SQLAlchemy JSON columns need reassignment to trigger updates
+        usage = dict(user.usage) if user.usage else {}
+        usage.setdefault("daily", {})
+        usage.setdefault("monthly", {})
+        
+        usage["daily"][day] = usage["daily"].get(day, 0) + 1
+        usage["monthly"][month] = usage["monthly"].get(month, 0) + 1
+        
+        user.usage = usage
+        
+        act = Activity(username=username, endpoint=endpoint)
+        db.add(act)
+        db.commit()
 
 def get_usage(username: str) -> dict:
-    users = load_users()
-    u = users.get(username, {})
-    day = get_current_date_str()
-    month = get_current_month_str()
-    
-    plan = u.get("plan", "free")
-    limits = PLANS.get(plan, PLANS["free"])
-    
-    queries_today = u.get("usage_daily", {}).get(day, 0)
-    queries_month = u.get("usage_monthly", {}).get(month, 0)
-    
-    daily_quota = limits["daily_quota"]
-    monthly_quota = limits["monthly_quota"]
-    
-    return {
-        "plan": plan,
-        "queries_today": queries_today,
-        "queries_month": queries_month,
-        "daily_quota": daily_quota,
-        "monthly_quota": monthly_quota,
-        "daily_remaining": max(0, daily_quota - queries_today),
-        "monthly_remaining": max(0, monthly_quota - queries_month),
-    }
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == username).first()
+        plan = user.plan if user else "free"
+        limits = PLANS.get(plan, PLANS["free"])
+        
+        usage = user.usage if user and user.usage else {}
+        day = get_current_date_str()
+        month = get_current_month_str()
+        
+        queries_today = usage.get("daily", {}).get(day, 0)
+        queries_month = usage.get("monthly", {}).get(month, 0)
+        
+        daily_quota = limits["daily_quota"]
+        monthly_quota = limits["monthly_quota"]
+        
+        return {
+            "plan": plan,
+            "queries_today": queries_today,
+            "queries_month": queries_month,
+            "daily_quota": daily_quota,
+            "monthly_quota": monthly_quota,
+            "daily_remaining": max(0, daily_quota - queries_today),
+            "monthly_remaining": max(0, monthly_quota - queries_month),
+        }
 
 def check_rate_limit(username: str) -> int:
     """Returns the remaining requests. Raises HTTP 429 if quota exceeded."""
@@ -252,41 +243,44 @@ def check_rate_limit(username: str) -> int:
 # FastAPI Dependencies
 # ──────────────────────────────────────────────
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login-form", auto_error=False)
-
-async def get_current_user(token: Optional[str] = Depends(oauth2_scheme)) -> dict:
+async def get_current_user(request: Request) -> dict:
+    token = request.cookies.get("access_token")
+    if not token:
+        # Fallback to header for developers or old clients
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Access token is missing. Please sign in.",
-            headers={"WWW-Authenticate": "Bearer"},
         )
+        
     payload = decode_token(token)
     username = payload.get("sub")
     if not username:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload.")
     
-    users = load_users()
-    if username not in users:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account not found.")
-    
-    user_data = users[username]
-    user_data["username"] = username
-    return user_data
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User account not found.")
+        
+        user_dict = {
+            "username": user.username,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "plan": user.plan,
+            "api_key": user.api_key,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+            "usage": get_usage(user.username)
+        }
+    return user_dict
 
-async def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Optional[dict]:
-    if not token:
-        return None
+async def get_optional_user(request: Request) -> Optional[dict]:
     try:
-        payload = decode_token(token)
-        username = payload.get("sub")
-        if not username:
-            return None
-        users = load_users()
-        if username in users:
-            u = users[username]
-            u["username"] = username
-            return u
+        return await get_current_user(request)
     except Exception:
-        pass
-    return None
+        return None
