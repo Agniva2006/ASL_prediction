@@ -86,4 +86,4 @@ The Live 30 FPS terminal demo (python run_codec_demo.py) is ready to run in inte
 All unit and advanced multi-model tests pass 100%.
 👉 Where to next?
 Customer-Churn-Prediction... (TelcoPulse) — Upgrade to Causal Machine Learning (EconML Double ML / CATE estimation) and Kafka event streaming.
-AI_gaming (NeuroArena) — Upgrade to distributed Ray PPO swarm reinforcement learning and the 3D WebGL pitch.
+AI_gaming (TacticAI / StadiumAI) — DeepMind TacticAI geometric GNN (D2 dihedral group frame averaging) and multi-agent GAE-PPO reinforcement learning.
