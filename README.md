@@ -6,6 +6,7 @@
   <img src="https://img.shields.io/badge/Vercel-Deployed-000000?style=flat&logo=vercel" alt="Vercel">
   <img src="https://img.shields.io/badge/Render-Deployed-46E3B7?style=flat&logo=render" alt="Render">
 </div>
+<img width="5591" height="5723" alt="diagram_ASL" src="https://github.com/user-attachments/assets/e01097ef-f36e-4fa0-b226-c1b6c2087415" />
 
 # 🤟 Sign0 (v4.5 Enterprise) — AI Sign Language Platform & Billing Suite
 
