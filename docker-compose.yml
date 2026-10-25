@@ -1,33 +1,105 @@
-version: '3.8'
+version: '3.9'
 
 services:
+
+  # ── PostgreSQL Database ───────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: sign0-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sign0}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sign0pass}
+      POSTGRES_DB: ${POSTGRES_DB:-sign0db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./prisma/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sign0} -d ${POSTGRES_DB:-sign0db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── pgAdmin (Database GUI) ─────────────────────────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: sign0-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@sign0.ai}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-sign0admin}
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Sign0 FastAPI Backend ──────────────────────────────────────────────────
   api:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: sign0-api
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
-      - ENVIRONMENT=production
-      - HOST=0.0.0.0
-      - PORT=8000
-    restart: unless-stopped
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-sign0}:${POSTGRES_PASSWORD:-sign0pass}@postgres:5432/${POSTGRES_DB:-sign0db}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      HOST: 0.0.0.0
+      PORT: 8000
+      SIGN0_SECRET_KEY: ${SIGN0_SECRET_KEY}
+      STRIPE_API_KEY: ${STRIPE_API_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_PRO: ${STRIPE_PRICE_PRO:-}
+      STRIPE_PRICE_DEVELOPER: ${STRIPE_PRICE_DEVELOPER:-}
     volumes:
       - ./backend/data:/app/backend/data
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 15s
 
+  # ── Prometheus Metrics Scraper ─────────────────────────────────────────────
   prometheus:
     image: prom/prometheus:latest
     container_name: sign0-prometheus
+    restart: unless-stopped
     ports:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    restart: unless-stopped
+      - prometheus_data:/prometheus
     depends_on:
       - api
+
+  # ── Grafana Dashboard ──────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sign0-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-sign0admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+  prometheus_data:
+  grafana_data:

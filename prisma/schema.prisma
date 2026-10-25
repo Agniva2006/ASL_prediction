@@ -1,0 +1,109 @@
+// Sign0 Prisma Schema — PostgreSQL
+// Canonical data model for all Sign0 platform entities.
+// Run: prisma generate   → generates Python client
+//      prisma db push    → syncs schema to dev DB (no migration history)
+//      prisma migrate dev --name <name>  → creates tracked migration
+
+generator client {
+  provider             = "prisma-client-py"
+  interface            = "asyncio"
+  recursive_model_rename = false
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// User Account & Subscription
+// ─────────────────────────────────────────────
+model User {
+  id                   Int       @id @default(autoincrement())
+  username             String    @unique @db.VarChar(64)
+  email                String    @unique @db.VarChar(128)
+  fullName             String?   @db.VarChar(128)
+  hashedPassword       String    @db.VarChar(256)
+  role                 String    @default("learner") @db.VarChar(32)
+  plan                 String    @default("free") @db.VarChar(32)
+  apiKey               String?   @unique @db.VarChar(128)
+
+  // Stripe billing
+  stripeCustomerId     String?   @db.VarChar(128)
+  stripeSubscriptionId String?   @db.VarChar(128)
+  subscriptionStatus   String?   @db.VarChar(64)
+
+  // Daily usage cache (JSON object: { "2024-01-01": 42 })
+  usage                Json      @default("{}")
+
+  createdAt            DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(6)
+
+  // Relations
+  activities           Activity[]
+  sessions             ConversationSession[]
+
+  @@index([username])
+  @@index([email])
+  @@index([apiKey])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────
+// API Activity Log (per-endpoint tracing)
+// ─────────────────────────────────────────────
+model Activity {
+  id         Int      @id @default(autoincrement())
+  userId     Int?
+  username   String   @db.VarChar(64)
+  endpoint   String   @db.VarChar(128)
+  method     String   @default("POST") @db.VarChar(8)
+  latencyMs  Float    @default(0.0)
+  statusCode Int      @default(200)
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([username])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("activities")
+}
+
+// ─────────────────────────────────────────────
+// Real-Time Gesture Conversation Sessions
+// ─────────────────────────────────────────────
+model ConversationSession {
+  id                String   @id @default(cuid())
+  userId            Int?
+  channelType       String   @default("websocket") @db.VarChar(32)  // websocket | webrtc | http
+  totalFrames       Int      @default(0)
+  wordsTranscribed  String   @default("") @db.Text
+  sentenceOutput    String   @default("") @db.Text
+  durationSeconds   Float    @default(0.0)
+  createdAt         DateTime @default(now()) @db.Timestamptz(6)
+  endedAt           DateTime?
+
+  user              User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("conversation_sessions")
+}
+
+// ─────────────────────────────────────────────
+// Inference Telemetry (benchmarking & auditing)
+// ─────────────────────────────────────────────
+model InferenceLog {
+  id           Int      @id @default(autoincrement())
+  modelVariant String   @db.VarChar(32)   // mlp_fp32 | mlp_int8 | transformer
+  latencyMs    Float
+  confidence   Float
+  prediction   String   @db.VarChar(64)
+  payloadBytes Int      @default(252)
+  createdAt    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([modelVariant])
+  @@index([createdAt])
+  @@map("inference_logs")
+}

@@ -6,6 +6,19 @@ backend/__pycache__/
 .pytest_cache/
 data/
 
+# Prisma generated client (re-generated via `prisma generate`)
+prisma/client/
+
+# Environment secrets — NEVER commit .env
+.env
+
+# Docker volumes (if accidentally mounted locally)
+postgres_data/
+pgadmin_data/
+prometheus_data/
+grafana_data/
+
+
 # OS metadata
 .DS_Store
 Thumbs.db
