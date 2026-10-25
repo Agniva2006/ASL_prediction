@@ -6,6 +6,7 @@
   <img src="https://img.shields.io/badge/Docker-Multi--Stage-2496ED.svg?style=flat&logo=docker&logoColor=white" alt="Docker">
   <img src="https://img.shields.io/badge/Tests-18%20Passed-brightgreen.svg?style=flat&logo=pytest&logoColor=white" alt="Tests">
 </div>
+<img width="5591" height="5723" alt="diagram_ASL" src="https://github.com/user-attachments/assets/e01097ef-f36e-4fa0-b226-c1b6c2087415" />
 
 # 🤟 Sign0 (v5.0 Enterprise) — High-Performance AI Sign Platform & Neural Codec
 
